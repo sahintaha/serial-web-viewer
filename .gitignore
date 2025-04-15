@@ -1,0 +1,6 @@
+# node_modules klasörünü dışla
+node_modules/
+# log dosyalarını dışla
+*.log
+# operating system dosyalarını dışla
+.DS_Store
