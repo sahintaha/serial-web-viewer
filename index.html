@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arduino Serial Data</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    #data-container {
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 300px;
+      overflow-y: auto;
+      background-color: #f9f9f9;
+    }
+  </style>
+</head>
+<body>
+  <h1>Arduino Serial Data</h1>
+  <div id="data-container"></div>
+  
+  <script>
+    const socket = io(); // Socket.io bağlantısını başlat
+    const dataContainer = document.getElementById('data-container');
+
+    // Yeni veri geldiğinde tetiklen

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arduino Verileri</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    #data {
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 300px;
+      overflow-y: auto; /* Dikey kaydırma çubuğunu etkinleştir */
+      background-color: #f9f9f9;
+    }
+  </style>
+</head>
+<body>
+  <h1>Arduino Verileri</h1>
+  <div id="data"></div>
+
+  <script>
+    const socket = io();
+    const dataDiv = document.getElementById('data');
+
+    socket.on('serial-data', (data) => {
+      const p = document.createElement('p');
+      p.textContent = `Veri: ${data}`;
+      dataDiv.appendChild(p);
+
+      // Otomatik olarak en alta kaydır
+      dataDiv.scrollTop = dataDiv.scrollHeight;
+    });
+  </script>
+</body>
+</html>
