@@ -1,0 +1,23 @@
+[33mcommit e0b29fe4c03174d1c9553d4dfd08c43003c3cf47[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: sahintaha <taha@example.com>
+Commit: sahintaha <taha@example.com>
+
+    Add serial port selection and data display from web interface
+
+[33mcommit d1fe69d0aa2f62687dc2b0267e0ddaf2570d99be[m
+Author: sahintaha <taha@example.com>
+Commit: sahintaha <taha@example.com>
+
+    first commit
+
+[33mcommit f2736a8904a496a237d6d80a2d0f2b9e5cf696c7[m
+Author: sahintaha <taha@example.com>
+Commit: sahintaha <taha@example.com>
+
+    İlk yükleme: serial-web-viewer
+
+[33mcommit 3a1f71f69c4b9ddee1ee6737fe4b50b09c814141[m
+Author: Taha Şahin <89659001+sahintaha@users.noreply.github.com>
+Commit: GitHub <noreply@github.com>
+
+    Initial commit
