@@ -6,51 +6,61 @@ const path = require('path');
 const app = express();
 const PORT = 3000;
 
-let io; 
+let io;
+let serialPort;
+let parser;
 
-const startServer = () => {
-  app.use(express.static(path.join(__dirname, 'public')));
-  const server = app.listen(PORT, () =>
-    console.log(`Web server running at http://localhost:${PORT}`)
-  );
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
 
-  io = socketIo(server);
+const server = app.listen(PORT, () => {
+  console.log(`🌐 Web server running at http://localhost:${PORT}`);
+});
 
-  io.on('connection', (socket) => {
-    console.log('A user connected.');
-    socket.on('disconnect', () => {
-      console.log('A user disconnected.');
-    });
+io = socketIo(server);
+
+// 📡 Web istemciden gelen bağlantı isteğini dinle
+io.on('connection', (socket) => {
+  console.log('⚡ A user connected.');
+
+  socket.on('disconnect', () => {
+    console.log('❌ A user disconnected.');
   });
-};
 
+  socket.on('select-port', (portPath) => {
+    console.log(`🔌 Port seçildi: ${portPath}`);
+    openSerialPort(portPath);
+  });
+});
 
-const initSerial = async () => {
+// 🌐 Seri port listesini istemciye ver
+app.get('/ports', async (req, res) => {
   const ports = await SerialPort.list();
-  const portInfo = ports.find(p => p.manufacturer);
+  res.json(ports.map(p => ({
+    path: p.path,
+    manufacturer: p.manufacturer || 'Bilinmeyen'
+  })));
+});
 
-  if (!portInfo) {
-    console.log('⚠️ No serial port found. Starting server without Arduino.');
-    startServer(); 
-    return;
+// 🧠 Portu aç
+function openSerialPort(portPath) {
+  if (serialPort && serialPort.isOpen) {
+    serialPort.close();
   }
 
-  const serialPort = new SerialPort({
-    path: portInfo.path,
+  serialPort = new SerialPort({
+    path: portPath,
     baudRate: 9600,
   });
 
-  const parser = serialPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+  parser = serialPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
 
   parser.on('data', (data) => {
-    console.log('Arduino Data:', data);
+    console.log('📡 Arduino:', data);
     if (io) io.emit('serial-data', data);
   });
 
-  startServer();
-};
-
-initSerial().catch(error => {
-  console.error('❌ Error initializing serial port:', error);
-  startServer(); 
-});
+  serialPort.on('error', (err) => {
+    console.error('❌ Seri port hatası:', err.message);
+  });
+}

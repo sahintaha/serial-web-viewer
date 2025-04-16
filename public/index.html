@@ -1,35 +1,71 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Arduino Verileri</title>
+  <title>Arduino Serial Viewer</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    #data {
+    body {
+      font-family: Arial;
+      padding: 20px;
+      background-color: #f0f0f0;
+    }
+    select, button {
+      font-size: 16px;
+      margin: 10px 0;
+    }
+    #data-container {
       border: 1px solid #ccc;
-      padding: 10px;
       height: 300px;
-      overflow-y: auto; /* Dikey kaydırma çubuğunu etkinleştir */
-      background-color: #f9f9f9;
+      padding: 10px;
+      background: #fff;
+      overflow-y: auto;
+      font-family: monospace;
     }
   </style>
 </head>
 <body>
-  <h1>Arduino Verileri</h1>
-  <div id="data"></div>
+  <h1>🔧 Arduino Seri Port Seçimi</h1>
+  <select id="port-select">
+    <option disabled selected>Portlar yükleniyor...</option>
+  </select>
+  <button onclick="connectPort()">Bağlan</button>
+
+  <h2>📡 Gelen Veriler</h2>
+  <div id="data-container"></div>
 
   <script>
     const socket = io();
-    const dataDiv = document.getElementById('data');
+    const portSelect = document.getElementById('port-select');
+    const dataContainer = document.getElementById('data-container');
 
+    // 🌐 Portları sunucudan al
+    fetch('/ports')
+      .then(res => res.json())
+      .then(ports => {
+        portSelect.innerHTML = '';
+        ports.forEach(port => {
+          const option = document.createElement('option');
+          option.value = port.path;
+          option.textContent = `${port.path} (${port.manufacturer})`;
+          portSelect.appendChild(option);
+        });
+      });
+
+    // 🔌 Bağlantı isteği gönder
+    function connectPort() {
+      const selectedPort = portSelect.value;
+      if (selectedPort) {
+        socket.emit('select-port', selectedPort);
+      }
+    }
+
+    // 🛰️ Gelen veriyi ekle
     socket.on('serial-data', (data) => {
-      const p = document.createElement('p');
-      p.textContent = `Veri: ${data}`;
-      dataDiv.appendChild(p);
-
-      // Otomatik olarak en alta kaydır
-      dataDiv.scrollTop = dataDiv.scrollHeight;
+      const line = document.createElement('div');
+      line.textContent = data;
+      dataContainer.appendChild(line);
+      dataContainer.scrollTop = dataContainer.scrollHeight;
     });
   </script>
 </body>
