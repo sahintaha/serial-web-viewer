@@ -3,7 +3,6 @@ const portSelect = document.getElementById('portSelect');
 const output = document.getElementById('output');
 const connectBtn = document.getElementById('connectBtn');
 
-// Port listesini al ve <select> içine doldur
 async function listPorts() {
   const res = await fetch('/ports');
   const ports = await res.json();
@@ -17,7 +16,7 @@ async function listPorts() {
   });
 }
 
-// Kullanıcı butona basarsa bu fonksiyon çalışır
+
 connectBtn.addEventListener('click', async () => {
   const path = portSelect.value;
   const res = await fetch('/select-port', {
@@ -33,7 +32,6 @@ connectBtn.addEventListener('click', async () => {
   }
 });
 
-// Gelen seri veriyi ekrana yaz
 socket.on('serial-data', (data) => {
   output.textContent += data + '\n';
 });
