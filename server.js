@@ -19,21 +19,32 @@ const server = app.listen(PORT, () => {
 
 io = socketIo(server);
 
-// 📡 Web istemciden gelen bağlantı isteğini dinle
+// Web istemciden gelen bağlantı isteğini dinle
 io.on('connection', (socket) => {
-  console.log('⚡ A user connected.');
+  console.log('⚡ Bir kullanıcı bağlandı.');
 
   socket.on('disconnect', () => {
-    console.log('❌ A user disconnected.');
+    console.log('❌ Kullanıcı ayrıldı.');
   });
 
   socket.on('select-port', (portPath) => {
     console.log(`🔌 Port seçildi: ${portPath}`);
     openSerialPort(portPath);
   });
+
+  socket.on('disconnect-port', () => {
+    if (serialPort && serialPort.isOpen) {
+      serialPort.close((err) => {
+        if (err) {
+          console.error('❌ Port kapatma hatası:', err.message);
+        } else {
+          console.log('🔌 Seri port kapatıldı.');
+        }
+      });
+    }
+  });
 });
 
-// 🌐 Seri port listesini istemciye ver
 app.get('/ports', async (req, res) => {
   const ports = await SerialPort.list();
   res.json(ports.map(p => ({
@@ -42,17 +53,12 @@ app.get('/ports', async (req, res) => {
   })));
 });
 
-// 🧠 Portu aç
 function openSerialPort(portPath) {
   if (serialPort && serialPort.isOpen) {
     serialPort.close();
   }
 
-  serialPort = new SerialPort({
-    path: portPath,
-    baudRate: 9600,
-  });
-
+  serialPort = new SerialPort({ path: portPath, baudRate: 9600 });
   parser = serialPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
 
   parser.on('data', (data) => {
