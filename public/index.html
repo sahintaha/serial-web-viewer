@@ -10,36 +10,59 @@
       padding: 20px;
       background-color: #f0f0f0;
     }
-    select, button {
+    select, button, input {
       font-size: 16px;
-      margin: 10px 0;
+      margin: 5px 0;
     }
-    #data-container {
+    #data-container, #tagged-data {
       border: 1px solid #ccc;
-      height: 300px;
+      height: 150px;
       padding: 10px;
       background: #fff;
       overflow-y: auto;
       font-family: monospace;
+      margin-top: 10px;
+    }
+    #label-configs input {
+      width: 120px;
+      margin-right: 5px;
     }
   </style>
 </head>
 <body>
   <h1>🔧 Arduino Seri Port Seçimi</h1>
-  <select id="port-select">
-    <option disabled selected>Portlar yükleniyor...</option>
-  </select>
+  <select id="port-select"><option>Portlar yükleniyor...</option></select>
   <button onclick="connectPort()">Bağlan</button>
+  <button onclick="disconnectPort()">Bağlantıyı Kes</button>
 
-  <h2>📡 Gelen Veriler</h2>
+  <h3>🔖 Veri Etiketleri</h3>
+  <div id="label-configs">
+    <div>
+      <input class="prefix" placeholder="Harf (örn: a)">
+      <input class="label" placeholder="Etiket (örn: Sıcaklık)">
+    </div>
+    <div>
+      <input class="prefix" placeholder="Harf (örn: b)">
+      <input class="label" placeholder="Etiket (örn: Nem)">
+    </div>
+    <div>
+      <input class="prefix" placeholder="Harf (örn: c)">
+      <input class="label" placeholder="Etiket (örn: Basınç)">
+    </div>
+  </div>
+
+  <h2>📡 Gelen Veri</h2>
   <div id="data-container"></div>
+
+  <h2>📋 Etiketlenmiş Veri</h2>
+  <div id="tagged-data"></div>
 
   <script>
     const socket = io();
     const portSelect = document.getElementById('port-select');
     const dataContainer = document.getElementById('data-container');
+    const taggedDataContainer = document.getElementById('tagged-data');
 
-    // 🌐 Portları sunucudan al
     fetch('/ports')
       .then(res => res.json())
       .then(ports => {
@@ -52,7 +75,6 @@
         });
       });
 
-    // 🔌 Bağlantı isteği gönder
     function connectPort() {
       const selectedPort = portSelect.value;
       if (selectedPort) {
@@ -60,12 +82,29 @@
       }
     }
 
-    // 🛰️ Gelen veriyi ekle
+    function disconnectPort() {
+      socket.emit('disconnect-port');
+    }
+
     socket.on('serial-data', (data) => {
       const line = document.createElement('div');
       line.textContent = data;
       dataContainer.appendChild(line);
       dataContainer.scrollTop = dataContainer.scrollHeight;
+
+      const parts = data.split(',').map(p => p.trim());
+
+      const configs = Array.from(document.querySelectorAll('#label-configs div')).map(div => {
+        const prefix = div.querySelector('.prefix').value.trim();
+        const label = div.querySelector('.label').value.trim();
+        return { prefix, label };
+      }).filter(cfg => cfg.prefix && cfg.label);
+
+      taggedDataContainer.innerHTML = configs.map(cfg => {
+        const found = parts.find(p => p.startsWith(cfg.prefix));
+        const value = found ? found.slice(cfg.prefix.length) : '---';
+        return `<div>${cfg.label}: ${value}</div>`;
+      }).join('');
     });
   </script>
 </body>
