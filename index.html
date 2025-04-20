@@ -5,87 +5,54 @@
   <title>Arduino Serial Viewer</title>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <style>
-    :root {
-      --primary-color: #2196F3;
-      --secondary-color: #1976D2;
-      --success-color: #4CAF50;
-      --error-color: #F44336;
-      --background-color: #f5f5f5;
-      --card-background: #ffffff;
-      --text-color: #333333;
-      --border-color: #e0e0e0;
-    }
-    
-  </style>
+    <link rel="stylesheet" href="styles.css">
+
 </head>
 <body>
   <div id="left-panel">
-    <div class="card">
-      <h3>🔧 Seri Port Seçimi</h3>
-      <div class="port-wrapper">
-        <label class="port-label">🔌 Alıcı Port:</label>
-        <div class="port-inputs">
-          <select id="receiver-select" class="port-select"></select>
-          <input type="text" id="receiver-custom" class="port-input" placeholder="/dev/ttyUSB0">
-        </div>
-        <label class="toggle-label">
-          <input type="checkbox" id="receiver-custom-toggle"> Elle girmek istiyorum
-        </label>
-      </div>
+    <h3>🔧 Seri Port Seçimi</h3>
+<!-- Alıcı Port -->
+<div class="port-wrapper">
+  <label class="port-label">🔌 Alıcı Port:</label>
+  <div class="port-inputs">
+    <select id="receiver-select" class="port-select"></select>
+    <input type="text" id="receiver-custom" class="port-input" placeholder="/dev/ttyUSB0">
+  </div>
+  <label class="toggle-label">
+    <input type="checkbox" id="receiver-custom-toggle"> Elle girmek istiyorum
+  </label>
+</div>
 
-      <div class="port-wrapper">
-        <label class="port-label">📤 Verici Port (İsteğe Bağlı):</label>
-        <div class="port-inputs">
-          <select id="transmitter-select" class="port-select">
-            <option value="">Verici Port Seçilmedi</option>
-          </select>
-          <input type="text" id="transmitter-custom" class="port-input" placeholder="/dev/ttyUSB1">
-        </div>
-        <label class="toggle-label">
-          <input type="checkbox" id="transmitter-custom-toggle"> Elle girmek istiyorum
-        </label>
-      </div>
+<!-- Verici Port -->
+<div class="port-wrapper">
+  <label class="port-label">📤 Verici Port:</label>
+  <div class="port-inputs">
+    <select id="transmitter-select" class="port-select"></select>
+    <input type="text" id="transmitter-custom" class="port-input" placeholder="/dev/ttyUSB1">
+  </div>
+  <label class="toggle-label">
+    <input type="checkbox" id="transmitter-custom-toggle"> Elle girmek istiyorum
+  </label>
+</div>
 
-      <button id="connection-button" onclick="toggleConnection()">🔌 Bağlan</button>
+
+    <button id="connection-button" onclick="toggleConnection()">🔌 Bağlan</button>
+
+    <h3>🔖 Etiket Ayarları</h3>
+    <div id="label-configs">
+      <div><input class="prefix" placeholder="Harf"><input class="label" placeholder="Etiket"></div>
+      <div><input class="prefix" placeholder="Harf"><input class="label" placeholder="Etiket"></div>
+      <div><input class="prefix" placeholder="Harf"><input class="label" placeholder="Etiket"></div>
     </div>
 
-    <div class="card">
-      <h3>🔖 Etiket Ayarları</h3>
-      <div id="label-configs">
-        <div class="label-config">
-          <input class="prefix" placeholder="Harf">
-          <input class="label" placeholder="Etiket">
-        </div>
-        <div class="label-config">
-          <input class="prefix" placeholder="Harf">
-          <input class="label" placeholder="Etiket">
-        </div>
-        <div class="label-config">
-          <input class="prefix" placeholder="Harf">
-          <input class="label" placeholder="Etiket">
-        </div>
-      </div>
-    </div>
+    <h3>📤 Manuel Veri Gönder</h3>
+    <input type="text" id="send-input" placeholder="Veri gir...">
+    <button onclick="sendData()">📨 Gönder</button>
 
-    <div class="card">
-      <h3>📤 Manuel Veri Gönder</h3>
-      <input type="text" id="send-input" placeholder="Veri gir...">
-      <button onclick="sendData()">📨 Gönder</button>
-    </div>
-
-    <div class="card">
-      <h3>⚙️ Otomatik Gönder</h3>
-      <div class="auto-send-controls">
-        <label>
-          <input type="checkbox" id="auto-send-checkbox">
-          Etiketlenmiş veriyi otomatik gönder
-        </label>
-        <input type="number" id="send-interval" value="1000" min="100" placeholder="Aralık (ms)">
-      </div>
-    </div>
+    <h3>⚙️ Otomatik Gönder</h3>
+    <label><input type="checkbox" id="auto-send-checkbox"> Etiketlenmiş veriyi otomatik gönder</label>
+    <label>Aralık (ms):</label>
+    <input type="number" id="send-interval" value="1000" min="100">
   </div>
 
   <div id="right-panel">
@@ -100,8 +67,9 @@
       <canvas id="dataChart"></canvas>
     </div>
 
-    <div id="error-message"></div>
+    <div id="error-message" style="display: none; color: red; margin-top: 10px;"></div>
   </div>
+
 
   <script>
     const socket = io();
@@ -173,31 +141,21 @@
       clearInterval(autoSendInterval);
     }
 
-    function sendData() {
-      const message = document.getElementById('send-input').value.trim();
-      if (message) {
-        socket.emit('send-manual', message);
-      }
-    }
+function sendData() {
+  const message = document.getElementById('send-input').value.trim();
+  if (message) {
+    socket.emit('send-manual', message);
+  }
+}
 
     document.getElementById('auto-send-checkbox').addEventListener('change', (e) => {
       if (e.target.checked) {
         const intervalMs = parseInt(document.getElementById('send-interval').value) || 1000;
-        if (lastTaggedData) {
-          autoSendInterval = setInterval(() => {
-            socket.emit('start-auto-send', lastTaggedData, intervalMs);
-          }, intervalMs);
-        } else {
-          errorMessage.textContent = 'Gönderilecek etiketlenmiş veri yok';
-          errorMessage.style.display = 'block';
-          e.target.checked = false;
-        }
+        autoSendInterval = setInterval(() => {
+          if (lastTaggedData) socket.emit('send-data', lastTaggedData);
+        }, intervalMs);
       } else {
-        if (autoSendInterval) {
-          clearInterval(autoSendInterval);
-          autoSendInterval = null;
-          socket.emit('stop-auto-send');
-        }
+        clearInterval(autoSendInterval);
       }
     });
 
