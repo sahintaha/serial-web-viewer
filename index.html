@@ -4,92 +4,380 @@
   <meta charset="UTF-8">
   <title>Arduino Serial Viewer</title>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
+    * { box-sizing: border-box; }
     body {
-      font-family: Arial;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f4f4;
+      display: flex;
+      height: 100vh;
+    }
+
+    #left-panel, #right-panel {
       padding: 20px;
-      background-color: #f0f0f0;
+      overflow-y: auto;
     }
-    select, button, input {
-      font-size: 16px;
-      margin: 5px 0;
+
+    #right-panel {
+      flex: 2;
+      border-left: 1px solid #ccc;
+      background: #fff;
     }
+
+    #left-panel {
+      flex: 1;
+      background: #f9f9f9;
+    }
+
+    h2, h3 {
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+
     #data-container, #tagged-data {
       border: 1px solid #ccc;
-      height: 150px;
+      height: 180px;
       padding: 10px;
-      background: #fff;
-      overflow-y: auto;
+      background: #fdfdfd;
       font-family: monospace;
+      overflow-y: auto;
+      margin-bottom: 20px;
+    }
+
+    select, input, button {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0 10px;
+      font-size: 14px;
+    }
+
+    #label-configs div {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 5px;
+    }
+
+    #label-configs input {
+      flex: 1;
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
       margin-top: 10px;
     }
-    #label-configs input {
-      width: 120px;
-      margin-right: 5px;
-    }
+
+    .port-selector {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.port-selector select,
+.port-selector input {
+  width: 100%;
+  padding: 8px;
+  font-size: 14px;
+}
+
+.port-selector input {
+  display: none;
+}
+
+.custom-toggle {
+  font-size: 13px;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.port-wrapper {
+  margin-bottom: 15px;
+}
+
+.port-label {
+  font-weight: 600;
+  margin-bottom: 5px;
+  display: block;
+}
+
+.port-inputs {
+  display: flex;
+  flex-direction: column;
+}
+
+.port-select,
+.port-input {
+  width: 100%;
+  padding: 8px;
+  font-size: 14px;
+  margin-bottom: 5px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.port-input {
+  display: none;
+  transition: all 0.3s ease;
+}
+
+.toggle-label {
+  font-size: 13px;
+  color: #444;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-container {
+  width: 100%;
+  height: 300px;
+  margin-top: 20px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 10px;
+}
+
   </style>
 </head>
 <body>
-  <h1>🔧 Arduino Seri Port Seçimi</h1>
-  <select id="port-select"><option>Portlar yükleniyor...</option></select>
-  <button onclick="connectPort()">Bağlan</button>
-  <button onclick="disconnectPort()">Bağlantıyı Kes</button>
+  <div id="left-panel">
+    <h3>🔧 Seri Port Seçimi</h3>
+<!-- Alıcı Port -->
+<div class="port-wrapper">
+  <label class="port-label">🔌 Alıcı Port:</label>
+  <div class="port-inputs">
+    <select id="receiver-select" class="port-select"></select>
+    <input type="text" id="receiver-custom" class="port-input" placeholder="/dev/ttyUSB0">
+  </div>
+  <label class="toggle-label">
+    <input type="checkbox" id="receiver-custom-toggle"> Elle girmek istiyorum
+  </label>
+</div>
 
-  <h3>🔖 Veri Etiketleri</h3>
-  <div id="label-configs">
-    <div>
-      <input class="prefix" placeholder="Harf (örn: a)">
-      <input class="label" placeholder="Etiket (örn: Sıcaklık)">
+<!-- Verici Port -->
+<div class="port-wrapper">
+  <label class="port-label">📤 Verici Port:</label>
+  <div class="port-inputs">
+    <select id="transmitter-select" class="port-select"></select>
+    <input type="text" id="transmitter-custom" class="port-input" placeholder="/dev/ttyUSB1">
+  </div>
+  <label class="toggle-label">
+    <input type="checkbox" id="transmitter-custom-toggle"> Elle girmek istiyorum
+  </label>
+</div>
+
+
+    <button id="connection-button" onclick="toggleConnection()">🔌 Bağlan</button>
+
+    <h3>🔖 Etiket Ayarları</h3>
+    <div id="label-configs">
+      <div><input class="prefix" placeholder="Harf"><input class="label" placeholder="Etiket"></div>
+      <div><input class="prefix" placeholder="Harf"><input class="label" placeholder="Etiket"></div>
+      <div><input class="prefix" placeholder="Harf"><input class="label" placeholder="Etiket"></div>
     </div>
-    <div>
-      <input class="prefix" placeholder="Harf (örn: b)">
-      <input class="label" placeholder="Etiket (örn: Nem)">
-    </div>
-    <div>
-      <input class="prefix" placeholder="Harf (örn: c)">
-      <input class="label" placeholder="Etiket (örn: Basınç)">
-    </div>
+
+    <h3>📤 Manuel Veri Gönder</h3>
+    <input type="text" id="send-input" placeholder="Veri gir...">
+    <button onclick="sendData()">📨 Gönder</button>
+
+    <h3>⚙️ Otomatik Gönder</h3>
+    <label><input type="checkbox" id="auto-send-checkbox"> Etiketlenmiş veriyi otomatik gönder</label>
+    <label>Aralık (ms):</label>
+    <input type="number" id="send-interval" value="1000" min="100">
   </div>
 
-  <h2>📡 Gelen Veri</h2>
-  <div id="data-container"></div>
+  <div id="right-panel">
+    <h2>📡 Gelen Veri</h2>
+    <div id="data-container"></div>
 
-  <h2>📋 Etiketlenmiş Veri</h2>
-  <div id="tagged-data"></div>
+    <h2>📋 Etiketlenmiş Veri</h2>
+    <div id="tagged-data"></div>
+
+    <h2>📊 Anlık Grafik</h2>
+    <div class="chart-container">
+      <canvas id="dataChart"></canvas>
+    </div>
+
+    <div id="error-message" style="display: none; color: red; margin-top: 10px;"></div>
+  </div>
+
 
   <script>
     const socket = io();
-    const portSelect = document.getElementById('port-select');
+    let lastTaggedData = '';
+    let autoSendInterval = null;
+    let isConnected = false;
+    let dataChart = null;
+    let chartData = {
+      labels: [],
+      datasets: []
+    };
+
+    const receiverSelect = document.getElementById('receiver-select');
+    const transmitterSelect = document.getElementById('transmitter-select');
+    const receiverCustom = document.getElementById('receiver-custom');
+    const transmitterCustom = document.getElementById('transmitter-custom');
+    const receiverToggle = document.getElementById('receiver-custom-toggle');
+    const transmitterToggle = document.getElementById('transmitter-custom-toggle');
     const dataContainer = document.getElementById('data-container');
     const taggedDataContainer = document.getElementById('tagged-data');
+    const connectionButton = document.getElementById('connection-button');
+    const errorMessage = document.getElementById('error-message');
 
     fetch('/ports')
       .then(res => res.json())
       .then(ports => {
-        portSelect.innerHTML = '';
+        receiverSelect.innerHTML = '';
+        transmitterSelect.innerHTML = '';
         ports.forEach(port => {
-          const option = document.createElement('option');
-          option.value = port.path;
-          option.textContent = `${port.path} (${port.manufacturer})`;
-          portSelect.appendChild(option);
+          const option1 = document.createElement('option');
+          const option2 = document.createElement('option');
+          option1.value = option2.value = port.path;
+          option1.textContent = option2.textContent = `${port.path} (${port.manufacturer})`;
+          receiverSelect.appendChild(option1);
+          transmitterSelect.appendChild(option2);
         });
       });
 
-    function connectPort() {
-      const selectedPort = portSelect.value;
-      if (selectedPort) {
-        socket.emit('select-port', selectedPort);
+    function toggleConnection() {
+      if (!isConnected) {
+        connectPorts();
+        connectionButton.textContent = '❌ Bağlantıyı Kes';
+        isConnected = true;
+      } else {
+        disconnectPorts();
+        connectionButton.textContent = '🔌 Bağlan';
+        isConnected = false;
       }
     }
 
-    function disconnectPort() {
-      socket.emit('disconnect-port');
+    function connectPorts() {
+      const receiverPath = receiverToggle.checked ? receiverCustom.value : receiverSelect.value;
+      const transmitterPath = transmitterToggle.checked ? transmitterCustom.value : transmitterSelect.value;
+      
+      if (!receiverPath) {
+        errorMessage.textContent = 'Lütfen alıcı port seçin';
+        errorMessage.style.display = 'block';
+        return;
+      }
+
+      socket.emit('select-ports', {
+        receiverPath: receiverPath,
+        transmitterPath: transmitterPath
+      });
     }
 
+    function disconnectPorts() {
+      socket.emit('disconnect-ports');
+      clearInterval(autoSendInterval);
+    }
+
+function sendData() {
+  const message = document.getElementById('send-input').value.trim();
+  if (message) {
+    socket.emit('send-manual', message);
+  }
+}
+
+    document.getElementById('auto-send-checkbox').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        const intervalMs = parseInt(document.getElementById('send-interval').value) || 1000;
+        autoSendInterval = setInterval(() => {
+          if (lastTaggedData) socket.emit('send-data', lastTaggedData);
+        }, intervalMs);
+      } else {
+        clearInterval(autoSendInterval);
+      }
+    });
+
+    function initializeChart() {
+      const ctx = document.getElementById('dataChart').getContext('2d');
+      dataChart = new Chart(ctx, {
+        type: 'line',
+        data: chartData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          },
+          animation: {
+            duration: 0
+          }
+        }
+      });
+    }
+
+    function updateChart(taggedData) {
+      const parts = taggedData.split(', ');
+      const currentTime = new Date().toLocaleTimeString();
+
+      // Her etiket için dataset oluştur veya güncelle
+      parts.forEach(part => {
+        const [label, value] = part.split(':');
+        const numericValue = parseFloat(value);
+
+        if (!isNaN(numericValue)) {
+          let dataset = chartData.datasets.find(ds => ds.label === label);
+          
+          if (!dataset) {
+            // Yeni dataset oluştur
+            const color = getRandomColor();
+            dataset = {
+              label: label,
+              data: [],
+              borderColor: color,
+              backgroundColor: color,
+              fill: false
+            };
+            chartData.datasets.push(dataset);
+          }
+
+          // Veriyi ekle
+          dataset.data.push(numericValue);
+          if (dataset.data.length > 20) { // Son 20 veriyi tut
+            dataset.data.shift();
+          }
+        }
+      });
+
+      // Zaman etiketlerini güncelle
+      chartData.labels.push(currentTime);
+      if (chartData.labels.length > 20) {
+        chartData.labels.shift();
+      }
+
+      // Grafiği güncelle
+      dataChart.update();
+    }
+
+    function getRandomColor() {
+      const letters = '0123456789ABCDEF';
+      let color = '#';
+      for (let i = 0; i < 6; i++) {
+        color += letters[Math.floor(Math.random() * 16)];
+      }
+      return color;
+    }
+
+    // Sayfa yüklendiğinde grafiği başlat
+    document.addEventListener('DOMContentLoaded', initializeChart);
+
     socket.on('serial-data', (data) => {
-      const line = document.createElement('div');
-      line.textContent = data;
-      dataContainer.appendChild(line);
+      const div = document.createElement('div');
+      div.textContent = data;
+      dataContainer.appendChild(div);
       dataContainer.scrollTop = dataContainer.scrollHeight;
 
       const parts = data.split(',').map(p => p.trim());
@@ -100,12 +388,57 @@
         return { prefix, label };
       }).filter(cfg => cfg.prefix && cfg.label);
 
-      taggedDataContainer.innerHTML = configs.map(cfg => {
-        const found = parts.find(p => p.startsWith(cfg.prefix));
-        const value = found ? found.slice(cfg.prefix.length) : '---';
-        return `<div>${cfg.label}: ${value}</div>`;
-      }).join('');
+      const tagged = configs.map(cfg => {
+        const match = parts.find(p => p.startsWith(cfg.prefix));
+        const value = match ? match.slice(cfg.prefix.length) : '---';
+        return `${cfg.label}:${value}`;
+      }).join(', ');
+
+      taggedDataContainer.innerHTML = tagged
+        .split(', ')
+        .map(line => `<div>${line}</div>`).join('');
+
+      lastTaggedData = tagged;
+      
+      // Grafiği güncelle
+      updateChart(tagged);
     });
+
+    // Toggle butonları için event listener'lar
+    receiverToggle.addEventListener('change', () => {
+      receiverSelect.style.display = receiverToggle.checked ? 'none' : 'block';
+      receiverCustom.style.display = receiverToggle.checked ? 'block' : 'none';
+    });
+
+    transmitterToggle.addEventListener('change', () => {
+      transmitterSelect.style.display = transmitterToggle.checked ? 'none' : 'block';
+      transmitterCustom.style.display = transmitterToggle.checked ? 'block' : 'none';
+    });
+
+    // Socket event listener'ları
+    socket.on('connection-status', (status) => {
+      if (status.error) {
+        errorMessage.textContent = status.error;
+        errorMessage.style.display = 'block';
+        isConnected = false;
+        connectionButton.textContent = '🔌 Bağlan';
+      } else {
+        errorMessage.style.display = 'none';
+        isConnected = status.connected;
+        connectionButton.textContent = status.connected ? '❌ Bağlantıyı Kes' : '🔌 Bağlan';
+      }
+    });
+
+    socket.on('send-error', (error) => {
+      errorMessage.textContent = error;
+      errorMessage.style.display = 'block';
+    });
+
+    socket.on('serial-data', (data) => {
+      dataContainer.innerHTML += data + '<br>';
+      dataContainer.scrollTop = dataContainer.scrollHeight;
+    });
+
   </script>
 </body>
 </html>

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Arduino Serial Viewer</title>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -135,6 +136,15 @@
   gap: 5px;
 }
 
+.chart-container {
+  width: 100%;
+  height: 300px;
+  margin-top: 20px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 10px;
+}
 
   </style>
 </head>
@@ -166,8 +176,7 @@
 </div>
 
 
-    <button onclick="connectPorts()">🔌 Bağlan</button>
-    <button onclick="disconnectPorts()">❌ Bağlantıyı Kes</button>
+    <button id="connection-button" onclick="toggleConnection()">🔌 Bağlan</button>
 
     <h3>🔖 Etiket Ayarları</h3>
     <div id="label-configs">
@@ -192,6 +201,13 @@
 
     <h2>📋 Etiketlenmiş Veri</h2>
     <div id="tagged-data"></div>
+
+    <h2>📊 Anlık Grafik</h2>
+    <div class="chart-container">
+      <canvas id="dataChart"></canvas>
+    </div>
+
+    <div id="error-message" style="display: none; color: red; margin-top: 10px;"></div>
   </div>
 
 
@@ -199,11 +215,23 @@
     const socket = io();
     let lastTaggedData = '';
     let autoSendInterval = null;
+    let isConnected = false;
+    let dataChart = null;
+    let chartData = {
+      labels: [],
+      datasets: []
+    };
 
     const receiverSelect = document.getElementById('receiver-select');
     const transmitterSelect = document.getElementById('transmitter-select');
+    const receiverCustom = document.getElementById('receiver-custom');
+    const transmitterCustom = document.getElementById('transmitter-custom');
+    const receiverToggle = document.getElementById('receiver-custom-toggle');
+    const transmitterToggle = document.getElementById('transmitter-custom-toggle');
     const dataContainer = document.getElementById('data-container');
     const taggedDataContainer = document.getElementById('tagged-data');
+    const connectionButton = document.getElementById('connection-button');
+    const errorMessage = document.getElementById('error-message');
 
     fetch('/ports')
       .then(res => res.json())
@@ -220,10 +248,31 @@
         });
       });
 
+    function toggleConnection() {
+      if (!isConnected) {
+        connectPorts();
+        connectionButton.textContent = '❌ Bağlantıyı Kes';
+        isConnected = true;
+      } else {
+        disconnectPorts();
+        connectionButton.textContent = '🔌 Bağlan';
+        isConnected = false;
+      }
+    }
+
     function connectPorts() {
+      const receiverPath = receiverToggle.checked ? receiverCustom.value : receiverSelect.value;
+      const transmitterPath = transmitterToggle.checked ? transmitterCustom.value : transmitterSelect.value;
+      
+      if (!receiverPath) {
+        errorMessage.textContent = 'Lütfen alıcı port seçin';
+        errorMessage.style.display = 'block';
+        return;
+      }
+
       socket.emit('select-ports', {
-        receiverPath: receiverSelect.value,
-        transmitterPath: transmitterSelect.value
+        receiverPath: receiverPath,
+        transmitterPath: transmitterPath
       });
     }
 
@@ -232,10 +281,12 @@
       clearInterval(autoSendInterval);
     }
 
-    function sendData() {
-      const input = document.getElementById('send-input').value.trim();
-      if (input) socket.emit('send-data', input);
-    }
+function sendData() {
+  const message = document.getElementById('send-input').value.trim();
+  if (message) {
+    socket.emit('send-manual', message);
+  }
+}
 
     document.getElementById('auto-send-checkbox').addEventListener('change', (e) => {
       if (e.target.checked) {
@@ -247,6 +298,81 @@
         clearInterval(autoSendInterval);
       }
     });
+
+    function initializeChart() {
+      const ctx = document.getElementById('dataChart').getContext('2d');
+      dataChart = new Chart(ctx, {
+        type: 'line',
+        data: chartData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          },
+          animation: {
+            duration: 0
+          }
+        }
+      });
+    }
+
+    function updateChart(taggedData) {
+      const parts = taggedData.split(', ');
+      const currentTime = new Date().toLocaleTimeString();
+
+      // Her etiket için dataset oluştur veya güncelle
+      parts.forEach(part => {
+        const [label, value] = part.split(':');
+        const numericValue = parseFloat(value);
+
+        if (!isNaN(numericValue)) {
+          let dataset = chartData.datasets.find(ds => ds.label === label);
+          
+          if (!dataset) {
+            // Yeni dataset oluştur
+            const color = getRandomColor();
+            dataset = {
+              label: label,
+              data: [],
+              borderColor: color,
+              backgroundColor: color,
+              fill: false
+            };
+            chartData.datasets.push(dataset);
+          }
+
+          // Veriyi ekle
+          dataset.data.push(numericValue);
+          if (dataset.data.length > 20) { // Son 20 veriyi tut
+            dataset.data.shift();
+          }
+        }
+      });
+
+      // Zaman etiketlerini güncelle
+      chartData.labels.push(currentTime);
+      if (chartData.labels.length > 20) {
+        chartData.labels.shift();
+      }
+
+      // Grafiği güncelle
+      dataChart.update();
+    }
+
+    function getRandomColor() {
+      const letters = '0123456789ABCDEF';
+      let color = '#';
+      for (let i = 0; i < 6; i++) {
+        color += letters[Math.floor(Math.random() * 16)];
+      }
+      return color;
+    }
+
+    // Sayfa yüklendiğinde grafiği başlat
+    document.addEventListener('DOMContentLoaded', initializeChart);
 
     socket.on('serial-data', (data) => {
       const div = document.createElement('div');
@@ -273,86 +399,45 @@
         .map(line => `<div>${line}</div>`).join('');
 
       lastTaggedData = tagged;
+      
+      // Grafiği güncelle
+      updateChart(tagged);
     });
 
+    // Toggle butonları için event listener'lar
+    receiverToggle.addEventListener('change', () => {
+      receiverSelect.style.display = receiverToggle.checked ? 'none' : 'block';
+      receiverCustom.style.display = receiverToggle.checked ? 'block' : 'none';
+    });
 
-    // Elle giriş checkbox kontrolü
-document.getElementById('receiver-custom-toggle').addEventListener('change', (e) => {
-  const useCustom = e.target.checked;
-  document.getElementById('receiver-select').style.display = useCustom ? 'none' : 'block';
-  document.getElementById('receiver-custom').style.display = useCustom ? 'block' : 'none';
-});
+    transmitterToggle.addEventListener('change', () => {
+      transmitterSelect.style.display = transmitterToggle.checked ? 'none' : 'block';
+      transmitterCustom.style.display = transmitterToggle.checked ? 'block' : 'none';
+    });
 
-document.getElementById('transmitter-custom-toggle').addEventListener('change', (e) => {
-  const useCustom = e.target.checked;
-  document.getElementById('transmitter-select').style.display = useCustom ? 'none' : 'block';
-  document.getElementById('transmitter-custom').style.display = useCustom ? 'block' : 'none';
-});
+    // Socket event listener'ları
+    socket.on('connection-status', (status) => {
+      if (status.error) {
+        errorMessage.textContent = status.error;
+        errorMessage.style.display = 'block';
+        isConnected = false;
+        connectionButton.textContent = '🔌 Bağlan';
+      } else {
+        errorMessage.style.display = 'none';
+        isConnected = status.connected;
+        connectionButton.textContent = status.connected ? '❌ Bağlantıyı Kes' : '🔌 Bağlan';
+      }
+    });
 
-// Bağlan fonksiyonunu güncelle
-function connectPorts() {
-  const receiverUseCustom = document.getElementById('receiver-custom-toggle').checked;
-  const transmitterUseCustom = document.getElementById('transmitter-custom-toggle').checked;
+    socket.on('send-error', (error) => {
+      errorMessage.textContent = error;
+      errorMessage.style.display = 'block';
+    });
 
-  const receiverValue = receiverUseCustom
-    ? document.getElementById('receiver-custom').value
-    : document.getElementById('receiver-select').value;
-
-  const transmitterValue = transmitterUseCustom
-    ? document.getElementById('transmitter-custom').value
-    : document.getElementById('transmitter-select').value;
-
-  socket.emit('select-ports', {
-    receiverPath: receiverValue,
-    transmitterPath: transmitterValue
-  });
-}
-
-
-document.getElementById('receiver-custom-toggle').addEventListener('change', (e) => {
-  const customInput = document.getElementById('receiver-custom');
-  const selectInput = document.getElementById('receiver-select');
-  if (e.target.checked) {
-    selectInput.style.display = 'none';
-    customInput.style.display = 'block';
-  } else {
-    selectInput.style.display = 'block';
-    customInput.style.display = 'none';
-  }
-});
-
-document.getElementById('transmitter-custom-toggle').addEventListener('change', (e) => {
-  const customInput = document.getElementById('transmitter-custom');
-  const selectInput = document.getElementById('transmitter-select');
-  if (e.target.checked) {
-    selectInput.style.display = 'none';
-    customInput.style.display = 'block';
-  } else {
-    selectInput.style.display = 'block';
-    customInput.style.display = 'none';
-  }
-});
-
-function setupPortToggle(toggleId, selectId, inputId) {
-  const toggle = document.getElementById(toggleId);
-  const select = document.getElementById(selectId);
-  const input = document.getElementById(inputId);
-
-  toggle.addEventListener("change", () => {
-    if (toggle.checked) {
-      select.style.display = "none";
-      input.style.display = "block";
-    } else {
-      select.style.display = "block";
-      input.style.display = "none";
-    }
-  });
-}
-
-setupPortToggle('receiver-custom-toggle', 'receiver-select', 'receiver-custom');
-setupPortToggle('transmitter-custom-toggle', 'transmitter-select', 'transmitter-custom');
-
-
+    socket.on('serial-data', (data) => {
+      dataContainer.innerHTML += data + '<br>';
+      dataContainer.scrollTop = dataContainer.scrollHeight;
+    });
 
   </script>
 </body>
