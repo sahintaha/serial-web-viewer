@@ -1,0 +1,35 @@
+# Serial Web Viewer - Docker Compose
+# 
+# Usage:
+#   docker-compose up -d
+#
+# For serial port access, uncomment the devices section
+# and modify the device path as needed
+
+version: '3.8'
+
+services:
+  serial-web-viewer:
+    build: .
+    container_name: serial-web-viewer
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BAUD_RATE=9600
+    # Uncomment below for serial port access
+    # privileged: true
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
