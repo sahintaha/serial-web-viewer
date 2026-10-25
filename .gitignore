@@ -1,6 +1,15 @@
-# node_modules klasörünü dışla
+# Dependencies
 node_modules/
-# log dosyalarını dışla
+
+# Logs
+logs/
 *.log
-# operating system dosyalarını dışla
+
+# Environment
+.env
+
+# OS / editor
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
