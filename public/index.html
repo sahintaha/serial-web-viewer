@@ -3,30 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Arduino Serial Viewer - Modern Interface</title>
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+  <title>Serial Web Viewer</title>
+  <meta name="description" content="Arduino ve gömülü cihazlar için tarayıcıda çalışan gerçek zamanlı seri port monitörü (Web Serial API).">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2'><path d='M9 3v18m6-18v18M3 9h18M3 15h18'/></svg>">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash
+    try {
+      const saved = localStorage.getItem('theme');
+      const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch { document.documentElement.setAttribute('data-theme', 'light'); }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Header -->
   <header class="header">
     <div class="header-content">
       <div class="logo">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M9 3v18m6-18v18M3 9h18M3 15h18"/>
         </svg>
         <h1>Serial Viewer</h1>
       </div>
       <div class="header-actions">
-        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <a class="theme-toggle" href="https://github.com/sahintaha/serial-web-viewer" target="_blank" rel="noopener" aria-label="GitHub deposu" title="GitHub">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5z"/>
+          </svg>
+        </a>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Temayı değiştir" title="Tema">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="5"/>
             <path d="M12 1v6m0 6v6M23 12h-6m-6 0H1M20.364 3.636l-4.243 4.243m0 4.242l4.243 4.243M3.636 20.364l4.243-4.243m0-4.242L3.636 7.636"/>
           </svg>
         </button>
-        <div class="connection-status" id="connection-status">
+        <div class="connection-status" id="connection-status" role="status" aria-live="polite">
           <span class="status-indicator"></span>
           <span class="status-text">Bağlantı Yok</span>
         </div>
@@ -34,347 +47,175 @@
     </div>
   </header>
 
+  <div id="support-banner" class="banner hidden" role="note"></div>
+
   <div class="container">
-    <!-- Left Panel -->
     <aside class="sidebar">
-      <!-- Port Configuration Card -->
-      <div class="card">
+      <!-- Connection -->
+      <section class="card">
         <div class="card-header">
           <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 2v6m0 6v6M6 12h6m-6 0h6"/>
             </svg>
-            Port Ayarları
+            Bağlantı
           </h2>
         </div>
         <div class="card-content">
-          <!-- Receiver Port -->
-          <div class="form-group form-group-compact">
-            <label class="form-label form-label-compact">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M8 9l4-4 4 4M8 15l4 4 4-4"/>
-              </svg>
-              Alıcı
-            </label>
-            <div class="port-selector">
-              <select id="receiver-select" class="form-select form-select-compact">
-                <option value="">Seçin...</option>
-              </select>
-              <input type="text" id="receiver-custom" class="form-input form-input-compact" placeholder="/dev/ttyUSB0" style="display: none;">
-  </div>
-            <label class="checkbox-label checkbox-label-compact">
-              <input type="checkbox" id="receiver-custom-toggle">
-              <span>Manuel</span>
-  </label>
-</div>
+          <div class="segmented" id="mode-selector" role="radiogroup" aria-label="Bağlantı modu">
+            <button type="button" class="segment" data-mode="webserial" role="radio" title="Tarayıcıdan doğrudan USB seri porta bağlan (Chrome / Edge)">Tarayıcı</button>
+            <button type="button" class="segment" data-mode="server" role="radio" title="Node.js sunucusu üzerinden bağlan (npm start)">Sunucu</button>
+            <button type="button" class="segment" data-mode="demo" role="radio" title="Donanım olmadan sahte sensör verisi">Demo</button>
+          </div>
+          <p class="mode-hint" id="mode-hint"></p>
 
-          <!-- Transmitter Port -->
-          <div class="form-group form-group-compact">
-            <label class="form-label form-label-compact">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M16 9l-4-4-4 4M16 15l-4 4-4-4"/>
-              </svg>
-              Verici
-            </label>
-            <div class="port-selector">
-              <select id="transmitter-select" class="form-select form-select-compact">
-                <option value="">Opsiyonel...</option>
-              </select>
-              <input type="text" id="transmitter-custom" class="form-input form-input-compact" placeholder="/dev/ttyUSB1" style="display: none;">
-  </div>
-            <label class="checkbox-label checkbox-label-compact">
-              <input type="checkbox" id="transmitter-custom-toggle">
-              <span>Manuel</span>
-  </label>
-</div>
+          <!-- Server mode: port pickers -->
+          <div id="server-ports" class="hidden">
+            <div class="form-group form-group-compact">
+              <label class="form-label form-label-compact" for="receiver-select">Alıcı port</label>
+              <div class="port-selector">
+                <select id="receiver-select" class="form-select form-select-compact"></select>
+                <input type="text" id="receiver-custom" class="form-input form-input-compact hidden" placeholder="/dev/ttyUSB0 veya COM3">
+                <button type="button" class="btn-icon-only" id="refresh-ports" title="Portları yenile" aria-label="Portları yenile">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                  </svg>
+                </button>
+              </div>
+              <label class="checkbox-label checkbox-label-compact">
+                <input type="checkbox" id="receiver-custom-toggle">
+                <span>Elle gir</span>
+              </label>
+            </div>
 
-          <button id="connection-button" class="btn btn-primary btn-block">
+            <div class="form-group form-group-compact">
+              <label class="form-label form-label-compact" for="transmitter-select">Verici port <span class="muted">(opsiyonel, boşsa alıcıya yazılır)</span></label>
+              <div class="port-selector">
+                <select id="transmitter-select" class="form-select form-select-compact"></select>
+                <input type="text" id="transmitter-custom" class="form-input form-input-compact hidden" placeholder="/dev/ttyUSB1 veya COM4">
+              </div>
+              <label class="checkbox-label checkbox-label-compact">
+                <input type="checkbox" id="transmitter-custom-toggle">
+                <span>Elle gir</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group form-group-compact" id="baud-group">
+            <label class="form-label form-label-compact" for="baud-select">Baud rate</label>
+            <select id="baud-select" class="form-select form-select-compact">
+              <option>300</option><option>1200</option><option>2400</option><option>4800</option>
+              <option selected>9600</option><option>19200</option><option>38400</option><option>57600</option>
+              <option>74880</option><option>115200</option><option>230400</option><option>250000</option>
+              <option>500000</option><option>1000000</option>
+            </select>
+          </div>
+
+          <button id="connection-button" class="btn btn-primary btn-block" type="button">
             <span class="btn-icon">🔌</span>
             <span>Bağlan</span>
           </button>
-          
-          <div class="divider"></div>
-          
-          <button id="test-mode-button" class="btn btn-secondary btn-block" onclick="toggleTestMode()">
-            <span class="btn-icon">🧪</span>
-            <span>Test Modu</span>
-          </button>
-          <p class="test-mode-hint">Arduino olmadan sahte verilerle test edin</p>
         </div>
-      </div>
+      </section>
 
-      <!-- Label Configuration Card -->
-      <div class="card">
+      <!-- Labels -->
+      <section class="card">
         <div class="card-header">
           <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M7 7h10M7 12h10M7 17h10M4 7h.01M4 12h.01M4 17h.01"/>
             </svg>
-            Etiket Ayarları
+            Etiketler
           </h2>
         </div>
         <div class="card-content">
-          <div id="label-configs" class="label-configs">
-            <div class="label-row">
-              <input type="text" class="form-input prefix-input" placeholder="Örn: A" value="A">
-              <input type="text" class="form-input label-input" placeholder="Örn: Sıcaklık" value="Sıcaklık">
-            </div>
-            <div class="label-row">
-              <input type="text" class="form-input prefix-input" placeholder="Örn: B" value="B">
-              <input type="text" class="form-input label-input" placeholder="Örn: Nem" value="Nem">
-            </div>
-            <div class="label-row">
-              <input type="text" class="form-input prefix-input" placeholder="Örn: C" value="C">
-              <input type="text" class="form-input label-input" placeholder="Örn: Basınç" value="Basınç">
-            </div>
-            <div class="label-row">
-              <input type="text" class="form-input prefix-input" placeholder="Örn: D" value="D">
-              <input type="text" class="form-input label-input" placeholder="Örn: Işık" value="Işık">
-            </div>
-          </div>
-          <button class="btn btn-secondary btn-block btn-sm" onclick="addLabelRow()">
+          <p class="mode-hint">Anahtar → görünen ad. <code>A25.5</code>, <code>temp:25</code> ve <code>{"temp":25}</code> formatları otomatik algılanır.</p>
+          <div id="label-configs" class="label-configs"></div>
+          <button class="btn btn-secondary btn-block btn-sm mt-md" type="button" data-action="add-label">
             <span>+ Yeni Etiket Ekle</span>
           </button>
         </div>
-      </div>
+      </section>
 
-      <!-- Send Data Card -->
-      <div class="card">
+      <!-- Send -->
+      <section class="card">
         <div class="card-header">
           <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 19l7-7 3 3-7 7-3-3z"/>
-              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
-              <path d="M2 2l7.586 7.586"/>
-              <circle cx="11" cy="11" r="2"/>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
             </svg>
             Veri Gönder
           </h2>
         </div>
         <div class="card-content">
-          <div class="form-group">
-            <input type="text" id="send-input" class="form-input" placeholder="Gönderilecek veriyi girin...">
-            <button onclick="sendData()" class="btn btn-primary btn-block">
+          <form class="form-group" id="send-form">
+            <input type="text" id="send-input" class="form-input" placeholder="Gönderilecek komut..." maxlength="1024" autocomplete="off">
+            <button type="submit" class="btn btn-primary btn-block mt-sm">
               <span class="btn-icon">📨</span>
               <span>Gönder</span>
             </button>
-    </div>
+          </form>
 
           <div class="divider"></div>
 
           <div class="form-group">
             <label class="checkbox-label">
               <input type="checkbox" id="auto-send-checkbox">
-              <span>Otomatik gönderim aktif</span>
+              <span>Bu komutu düzenli aralıkla gönder</span>
             </label>
             <div class="form-group-inline">
-              <label class="form-label-small">Aralık (ms):</label>
+              <label class="form-label-small" for="send-interval">Aralık (ms):</label>
               <input type="number" id="send-interval" class="form-input" value="1000" min="100" step="100">
             </div>
           </div>
         </div>
-      </div>
+      </section>
     </aside>
 
-    <!-- Main Panel -->
     <main class="main-content" id="panels-container">
-      <!-- Panel Add Button -->
       <div class="panel-add-wrapper">
-        <button class="btn btn-secondary btn-block" onclick="showAddPanelModal()">
+        <button class="btn btn-secondary btn-block" type="button" data-action="show-add-panel">
           <span class="btn-icon">+</span>
           <span>Yeni Panel Ekle</span>
         </button>
-  </div>
-
-      <!-- Data Display Card -->
-      <div class="card data-card panel-item" data-panel-id="data-panel" data-panel-type="data">
-        <div class="card-header">
-          <div class="card-header-left">
-            <div class="drag-handle" title="Sürükle">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 5h6M9 10h6M9 15h6M9 20h6"/>
-              </svg>
-            </div>
-            <div>
-              <h2>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                  <line x1="12" y1="22.08" x2="12" y2="12"/>
-                </svg>
-                Gelen Veri
-              </h2>
-              <p class="card-subtitle">Seri porttan gelen ham veriler</p>
-            </div>
-          </div>
-          <div class="card-actions">
-            <button class="btn-icon-only" onclick="clearData('data-container')" title="Temizle">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-            </button>
-            <button class="btn-icon-only btn-delete" onclick="deletePanel('data-panel')" title="Paneli Sil">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="card-content">
-          <div id="data-container" class="data-display scrollable-content"></div>
-        </div>
       </div>
-
-      <!-- Tagged Data Card -->
-      <div class="card data-card panel-item" data-panel-id="tagged-panel" data-panel-type="tagged">
-        <div class="card-header">
-          <div class="card-header-left">
-            <div class="drag-handle" title="Sürükle">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 5h6M9 10h6M9 15h6M9 20h6"/>
-              </svg>
-            </div>
-            <div>
-              <h2>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-                  <circle cx="7" cy="7" r="1.5"/>
-                </svg>
-                Etiketlenmiş Veri
-              </h2>
-              <p class="card-subtitle">Etiket ayarlarına göre işlenmiş veriler</p>
-            </div>
-          </div>
-          <div class="card-actions">
-            <button class="btn-icon-only" onclick="clearData('tagged-data')" title="Temizle">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-            </button>
-            <button class="btn-icon-only btn-delete" onclick="deletePanel('tagged-panel')" title="Paneli Sil">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="card-content">
-          <div id="tagged-data" class="data-display tagged-display scrollable-content"></div>
-        </div>
-      </div>
-
-      <!-- Chart Card -->
-      <div class="card chart-card panel-item" data-panel-id="chart-panel" data-panel-type="chart">
-        <div class="card-header">
-          <div class="card-header-left">
-            <div class="drag-handle" title="Sürükle">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 5h6M9 10h6M9 15h6M9 20h6"/>
-              </svg>
-            </div>
-            <div>
-              <h2>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                </svg>
-                Anlık Grafik
-              </h2>
-              <p class="card-subtitle">Verilerin grafiksel gösterimi</p>
-            </div>
-          </div>
-          <div class="card-actions">
-            <button class="btn-icon-only" onclick="resetChart()" title="Grafiği Sıfırla">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="1 4 1 10 7 10"/>
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-              </svg>
-            </button>
-            <button class="btn-icon-only btn-delete" onclick="deletePanel('chart-panel')" title="Paneli Sil">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="card-content">
-          <div class="chart-container scrollable-content">
-      <canvas id="dataChart"></canvas>
-          </div>
-        </div>
-      </div>
+      <!-- Panels are rendered by js/app.js -->
     </main>
-    </div>
+  </div>
 
-  <!-- Error Toast -->
-  <div id="error-toast" class="toast toast-error">
+  <div id="toast" class="toast" role="alert">
     <div class="toast-content">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"/>
-        <line x1="12" y1="8" x2="12" y2="12"/>
-        <line x1="12" y1="16" x2="12.01" y2="16"/>
-      </svg>
-      <span id="error-message"></span>
+      <span class="toast-icon" aria-hidden="true"></span>
+      <span id="toast-message"></span>
     </div>
-    <button class="toast-close" onclick="closeToast()">×</button>
+    <button class="toast-close" type="button" data-action="close-toast" aria-label="Kapat">×</button>
   </div>
 
-  <!-- Success Toast -->
-  <div id="success-toast" class="toast toast-success">
-    <div class="toast-content">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
-      <span id="success-message"></span>
-    </div>
-    <button class="toast-close" onclick="closeToast('success')">×</button>
-  </div>
-
-  <!-- Loading Overlay -->
-  <div id="loading-overlay" class="loading-overlay">
-    <div class="spinner"></div>
-    <p>Portlar yükleniyor...</p>
-  </div>
-
-  <!-- Add Panel Modal -->
-  <div id="add-panel-modal" class="modal">
+  <div id="add-panel-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="add-panel-title">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Yeni Panel Ekle</h2>
-        <button class="modal-close" onclick="closeAddPanelModal()">×</button>
+        <h2 id="add-panel-title">Yeni Panel Ekle</h2>
+        <button class="modal-close" type="button" data-action="close-add-panel" aria-label="Kapat">×</button>
       </div>
       <div class="modal-body">
         <div class="panel-type-selector">
-          <div class="panel-type-option" onclick="addPanel('data')">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-            </svg>
+          <button type="button" class="panel-type-option" data-action="add-panel" data-type="raw">
             <h3>Gelen Veri</h3>
-            <p>Ham seri port verilerini göster</p>
-          </div>
-          <div class="panel-type-option" onclick="addPanel('tagged')">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-            </svg>
+            <p>Ham seri port satırları</p>
+          </button>
+          <button type="button" class="panel-type-option" data-action="add-panel" data-type="tagged">
             <h3>Etiketlenmiş Veri</h3>
-            <p>İşlenmiş verileri göster</p>
-          </div>
-          <div class="panel-type-option" onclick="addPanel('chart')">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-            </svg>
+            <p>Son satırın alanları</p>
+          </button>
+          <button type="button" class="panel-type-option" data-action="add-panel" data-type="chart">
             <h3>Grafik</h3>
-            <p>Verilerin grafiksel gösterimi</p>
-          </div>
+            <p>Sayısal alanların zaman grafiği</p>
+          </button>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="script.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
