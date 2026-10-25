@@ -16,7 +16,8 @@
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-  <link rel="stylesheet" href="styles.css">
+  <!-- __BUILD__ is replaced with the commit hash on deploy so browsers never mix old and new files -->
+  <link rel="stylesheet" href="styles.css?v=__BUILD__">
 </head>
 <body>
   <header class="header">
@@ -314,6 +315,18 @@
     </div>
   </div>
 
-  <script type="module" src="js/app.js"></script>
+  <!-- Versions the modules that app.js imports as well (they would otherwise come from the cache) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "./js/parser.js": "./js/parser.js?v=__BUILD__",
+        "./js/transports.js": "./js/transports.js?v=__BUILD__",
+        "./js/production.js": "./js/production.js?v=__BUILD__",
+        "./js/production-ui.js": "./js/production-ui.js?v=__BUILD__",
+        "./js/results-store.js": "./js/results-store.js?v=__BUILD__"
+      }
+    }
+  </script>
+  <script type="module" src="js/app.js?v=__BUILD__"></script>
 </body>
 </html>
