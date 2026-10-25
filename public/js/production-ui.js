@@ -260,7 +260,7 @@ export function initProduction(app) {
     $('pt-limits-body').replaceChildren(
       ...limits.map((l) => {
         const input = (field, value, attrs = {}) =>
-          el('td', {}, el('input', { className: 'form-input pt-input', value: value ?? '', dataset: { field }, ...attrs }));
+          el('td', {}, el('input', { className: 'input pt-input', value: value ?? '', dataset: { field }, ...attrs }));
         const row = el(
           'tr',
           {},
@@ -269,7 +269,7 @@ export function initProduction(app) {
           input('unit', l.unit, { placeholder: 'V', ariaLabel: 'Birim' }),
           input('min', l.min, { type: 'number', step: 'any', ariaLabel: 'Minimum' }),
           input('max', l.max, { type: 'number', step: 'any', ariaLabel: 'Maksimum' }),
-          el('td', {}, el('button', { type: 'button', className: 'btn-icon-only btn-delete', textContent: '✕', title: 'Sil', dataset: { ptAction: 'remove-limit' } }))
+          el('td', {}, el('button', { type: 'button', className: 'icon-btn sm', textContent: '×', title: 'Sil', dataset: { ptAction: 'remove-limit' } }))
         );
         return row;
       })
@@ -334,7 +334,7 @@ export function initProduction(app) {
   function renderHistory(items) {
     const body = $('pt-history-body');
     if (!items.length) {
-      body.replaceChildren(el('tr', {}, el('td', { colSpan: 7, className: 'muted pt-empty', textContent: 'Kayıt yok' })));
+      body.replaceChildren(el('tr', { className: 'table-empty' }, el('td', { colSpan: 7, textContent: 'Kayıt yok' })));
       return;
     }
     body.replaceChildren(
@@ -343,18 +343,18 @@ export function initProduction(app) {
           'tr',
           {},
           el('td', { textContent: formatDateTime(r.finishedAt) }),
-          el('td', { className: 'pt-mono', textContent: r.serial }),
+          el('td', { className: 'mono', textContent: r.serial }),
           el('td', { textContent: r.attempt }),
-          el('td', {}, el('span', { className: `pt-badge pt-${r.result.toLowerCase()}`, textContent: RESULT_TEXT[r.result] })),
-          el('td', { className: 'pt-mono' }, ...r.measurements.map((m) =>
+          el('td', {}, el('span', { className: `badge badge-${r.result.toLowerCase()}`, textContent: RESULT_TEXT[r.result] })),
+          el('td', { className: 'mono' }, ...r.measurements.map((m) =>
             el('div', {
-              className: m.status === 'PASS' ? '' : `pt-text-${m.status === 'FAIL' ? 'fail' : 'error'}`,
+              className: m.status === 'PASS' ? '' : `text-${m.status === 'FAIL' ? 'fail' : 'error'}`,
               textContent: `${m.name}: ${m.value === null ? '—' : formatValue(m.value)}${m.unit ? ' ' + m.unit : ''}`,
             }))),
           el('td', { className: 'pt-reason', textContent: r.reason || '' }),
           el('td', {}, el('button', {
             type: 'button',
-            className: 'btn btn-secondary btn-sm',
+            className: 'btn btn-sm',
             textContent: 'Tekrar test',
             dataset: { ptAction: 'retest-serial', serial: r.serial },
           }))

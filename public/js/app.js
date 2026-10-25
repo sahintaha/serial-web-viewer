@@ -9,7 +9,8 @@ import { initProduction } from './production-ui.js';
 const MAX_RAW_LINES = 500;
 const MAX_HISTORY_ROWS = 10000;
 const MAX_CHART_POINTS = 100;
-const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#ef4444', '#6366f1'];
+// Muted, distinguishable series colours (no neon)
+const COLORS = ['#2b5fa8', '#c0711f', '#2f8f6a', '#8a4fb3', '#b23a48', '#3d8ea3', '#7d7a2a', '#5f6b78'];
 const DEFAULT_LABELS = [
   { prefix: 'A', label: 'Sıcaklık' },
   { prefix: 'B', label: 'Nem' },
@@ -81,7 +82,6 @@ let toastTimer = null;
 function showToast(message, type = 'error') {
   const toast = $('toast');
   toast.className = `toast show toast-${type}`;
-  toast.querySelector('.toast-icon').textContent = type === 'error' ? '⚠️' : '✅';
   $('toast-message').textContent = message;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(closeToast, 4000);
@@ -108,7 +108,7 @@ function setMode(mode) {
   if (state.connected || state.connecting || !state.available[mode]) return;
   state.mode = mode;
   storage.set('mode', mode);
-  document.querySelectorAll('#mode-selector .segment').forEach((btn) => {
+  document.querySelectorAll('#mode-selector .seg-item').forEach((btn) => {
     const active = btn.dataset.mode === mode;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-checked', String(active));
@@ -120,7 +120,7 @@ function setMode(mode) {
 }
 
 function updateModeAvailability() {
-  document.querySelectorAll('#mode-selector .segment').forEach((btn) => {
+  document.querySelectorAll('#mode-selector .seg-item').forEach((btn) => {
     const mode = btn.dataset.mode;
     btn.disabled = !state.available[mode] || state.connected || state.connecting;
   });
@@ -196,22 +196,22 @@ function renderConnection() {
   status.classList.toggle('connected', state.connected);
   status.classList.toggle('demo', state.connected && state.mode === 'demo');
   status.querySelector('.status-text').textContent = state.connecting
-    ? 'Bağlanıyor...'
+    ? 'Bağlanıyor…'
     : state.connected
-      ? state.mode === 'demo' ? 'Demo' : 'Bağlı'
-      : 'Bağlantı Yok';
+      ? state.statusLabel || 'Bağlı'
+      : 'Bağlı değil';
   status.title = state.statusLabel || '';
 
   const button = $('connection-button');
   button.disabled = state.connecting;
   button.classList.toggle('connected', state.connected);
-  button.innerHTML = state.connecting
-    ? '<span class="btn-icon">⏳</span><span>Bağlanıyor...</span>'
+  button.textContent = state.connecting
+    ? 'Bağlanıyor…'
     : state.connected
-      ? '<span class="btn-icon">⏹️</span><span>Bağlantıyı Kes</span>'
+      ? 'Bağlantıyı kes'
       : state.mode === 'demo'
-        ? '<span class="btn-icon">▶️</span><span>Demoyu Başlat</span>'
-        : '<span class="btn-icon">🔌</span><span>Bağlan</span>';
+        ? 'Demoyu başlat'
+        : 'Bağlan';
   updateModeAvailability();
 }
 
@@ -293,21 +293,21 @@ function appendRaw(log, rows) {
 
 function renderTagged(el, row) {
   if (!row.fields.length) {
-    el.replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: 'Veri bekleniyor...' }));
+    el.replaceChildren(Object.assign(document.createElement('div'), { className: 'readouts-empty', textContent: 'Veri bekleniyor' }));
     return;
   }
   el.replaceChildren(
     ...row.fields.map((f) => {
-      const chip = document.createElement('div');
-      chip.className = f.raw === '---' ? 'chip chip-missing' : 'chip';
+      const cell = document.createElement('div');
+      cell.className = f.raw === '---' ? 'readout missing' : 'readout';
       const name = document.createElement('span');
-      name.className = 'chip-label';
+      name.className = 'readout-label';
       name.textContent = f.label;
       const value = document.createElement('span');
-      value.className = 'chip-value';
+      value.className = 'readout-value';
       value.textContent = f.raw;
-      chip.append(name, value);
-      return chip;
+      cell.append(name, value);
+      return cell;
     })
   );
 }
@@ -338,8 +338,8 @@ function cssVar(name) {
 }
 
 function applyChartTheme(chart) {
-  const text = cssVar('--text-secondary');
-  const grid = cssVar('--border-color');
+  const text = cssVar('--text-2');
+  const grid = cssVar('--border');
   chart.options.plugins.legend.labels.color = text;
   chart.options.scales.x.ticks.color = text;
   chart.options.scales.y.ticks.color = text;
@@ -348,6 +348,8 @@ function applyChartTheme(chart) {
 }
 
 function createChart(canvas) {
+  window.Chart.defaults.font.family = "'IBM Plex Sans', sans-serif";
+  window.Chart.defaults.font.size = 12;
   const chart = new window.Chart(canvas.getContext('2d'), {
     type: 'line',
     data: { labels: [], datasets: [] },
@@ -358,11 +360,11 @@ function createChart(canvas) {
       spanGaps: true,
       interaction: { intersect: false, mode: 'index' },
       plugins: {
-        legend: { position: 'top', labels: { usePointStyle: true, padding: 15 } },
+        legend: { position: 'top', align: 'start', labels: { boxWidth: 14, boxHeight: 2, padding: 14 } },
       },
       scales: {
-        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
-        y: { grid: {}, ticks: {} },
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { family: "'IBM Plex Mono', monospace", size: 11 } } },
+        y: { grid: {}, ticks: { font: { family: "'IBM Plex Mono', monospace", size: 11 } } },
       },
     },
   });
@@ -378,7 +380,7 @@ function syncChart(chart) {
     let dataset = chart.data.datasets.find((d) => d.label === label);
     if (!dataset) {
       const color = COLORS[i % COLORS.length];
-      dataset = { label, data: [], borderColor: color, backgroundColor: color + '33', borderWidth: 2, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 };
+      dataset = { label, data: [], borderColor: color, backgroundColor: color, borderWidth: 1.5, tension: 0, pointRadius: 0, pointHoverRadius: 3 };
       chart.data.datasets.push(dataset);
     }
     dataset.data = data.slice();
@@ -398,44 +400,42 @@ function resetChart() {
 
 // ---------- panels ----------
 const PANEL_META = {
-  raw: { title: 'Gelen Veri', subtitle: 'Seri porttan gelen ham satırlar' },
-  tagged: { title: 'Etiketlenmiş Veri', subtitle: 'Son satırın alanları' },
-  chart: { title: 'Anlık Grafik', subtitle: 'Sayısal alanlar, son 100 ölçüm' },
+  raw: { title: 'Gelen veri', subtitle: 'Ham satırlar' },
+  tagged: { title: 'Son değerler', subtitle: 'Son satırın alanları' },
+  chart: { title: 'Grafik', subtitle: 'Sayısal alanlar, son 100 ölçüm' },
 };
 
 function panelActions(type) {
-  if (type === 'raw') return '<button class="btn-icon-only" data-action="clear-raw" title="Temizle" aria-label="Temizle">🧹</button>';
-  if (type === 'tagged') return '<button class="btn-icon-only" data-action="export-csv" title="CSV olarak indir" aria-label="CSV olarak indir">⬇️ CSV</button>';
-  return '<button class="btn-icon-only" data-action="reset-chart" title="Grafiği sıfırla" aria-label="Grafiği sıfırla">↺</button>';
+  if (type === 'raw') return '<button class="btn btn-sm" data-action="clear-raw">Temizle</button>';
+  if (type === 'tagged') return '<button class="btn btn-sm" data-action="export-csv" title="Kaydedilen tüm satırları CSV olarak indir">CSV indir</button>';
+  return '<button class="btn btn-sm" data-action="reset-chart">Sıfırla</button>';
 }
 
 function panelBody(type) {
-  if (type === 'raw') return '<div class="data-display scrollable-content" data-role="raw-log"></div>';
-  if (type === 'tagged') return '<div class="data-display tagged-display" data-role="tagged"><p class="muted">Veri bekleniyor...</p></div>';
-  return '<div class="chart-container"><canvas></canvas></div>';
+  if (type === 'raw') return '<div class="log" data-role="raw-log"></div>';
+  if (type === 'tagged') return '<div class="readouts" data-role="tagged"><div class="readouts-empty">Veri bekleniyor</div></div>';
+  return '<div class="chart-box"><canvas></canvas></div>';
 }
 
 function renderPanel({ id, type }) {
   const meta = PANEL_META[type];
   const el = document.createElement('section');
-  el.className = `card panel-item ${type === 'chart' ? 'chart-card' : 'data-card'}`;
+  el.className = `panel panel-item${type === 'chart' ? ' panel-wide' : ''}`;
   el.dataset.panelId = id;
   el.dataset.panelType = type;
   el.innerHTML = `
-    <div class="card-header">
-      <div class="card-header-left">
-        <div class="drag-handle" title="Sürükle" aria-hidden="true">⋮⋮</div>
-        <div>
-          <h2>${meta.title}</h2>
-          <p class="card-subtitle">${meta.subtitle}${type === 'raw' ? ' · <span data-role="line-count">0 satır</span>' : ''}</p>
-        </div>
+    <div class="panel-head">
+      <div class="drag-handle" title="Sürükleyerek taşı" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="panel-title">
+        <h2>${meta.title}</h2>
+        <span class="panel-sub">${meta.subtitle}${type === 'raw' ? ' · <span data-role="line-count">0 satır</span>' : ''}</span>
       </div>
-      <div class="card-actions">
+      <div class="panel-actions">
         ${panelActions(type)}
-        <button class="btn-icon-only btn-delete" data-action="delete-panel" title="Paneli sil" aria-label="Paneli sil">✕</button>
+        <button class="icon-btn sm" data-action="delete-panel" title="Paneli kaldır" aria-label="Paneli kaldır">&times;</button>
       </div>
     </div>
-    <div class="card-content">${panelBody(type)}</div>`;
+    <div class="panel-body">${panelBody(type)}</div>`;
   $('panels-container').append(el);
 
   if (type === 'chart' && window.Chart) charts.set(id, createChart(el.querySelector('canvas')));
@@ -489,9 +489,9 @@ function renderLabels() {
       const row = document.createElement('div');
       row.className = 'label-row';
       row.innerHTML = `
-        <input type="text" class="form-input prefix-input" placeholder="A" aria-label="Anahtar">
-        <input type="text" class="form-input label-input" placeholder="Sıcaklık" aria-label="Görünen ad">
-        <button type="button" class="btn-icon-only btn-delete" data-action="remove-label" aria-label="Etiketi sil">✕</button>`;
+        <input type="text" class="input mono prefix-input" placeholder="A" aria-label="Anahtar">
+        <input type="text" class="input label-input" placeholder="Sıcaklık" aria-label="Görünen ad">
+        <button type="button" class="icon-btn sm" data-action="remove-label" aria-label="Etiketi sil">&times;</button>`;
       row.querySelector('.prefix-input').value = prefix;
       row.querySelector('.label-input').value = label;
       return row;
@@ -586,7 +586,7 @@ function bindEvents() {
   $('baud-select').value = String(storage.get('baudRate', 9600));
 
   $('mode-selector').addEventListener('click', (e) => {
-    const btn = e.target.closest('.segment');
+    const btn = e.target.closest('.seg-item');
     if (btn) setMode(btn.dataset.mode);
   });
 
@@ -670,7 +670,7 @@ function setView(view) {
   $('panels-container').classList.toggle('hidden', production);
   $('production-view').classList.toggle('hidden', !production);
   document.querySelectorAll('.monitor-only').forEach((el) => el.classList.toggle('hidden', production));
-  document.querySelectorAll('#view-tabs .view-tab').forEach((tab) => {
+  document.querySelectorAll('#view-tabs .tab').forEach((tab) => {
     const active = tab.dataset.view === view;
     tab.classList.toggle('active', active);
     tab.setAttribute('aria-selected', String(active));
@@ -681,7 +681,7 @@ function setView(view) {
 
 function initViews() {
   $('view-tabs').addEventListener('click', (e) => {
-    const tab = e.target.closest('.view-tab');
+    const tab = e.target.closest('.tab');
     if (!tab) return;
     history.replaceState(null, '', tab.dataset.view === 'production' ? '#production' : location.pathname + location.search);
     setView(tab.dataset.view);

@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Serial Web Viewer</title>
-  <meta name="description" content="Arduino ve gömülü cihazlar için tarayıcıda çalışan gerçek zamanlı seri port monitörü (Web Serial API).">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2'><path d='M9 3v18m6-18v18M3 9h18M3 15h18'/></svg>">
+  <meta name="description" content="Gömülü cihazlar için seri port monitörü ve üretim test istasyonu. Tarayıcıda (Web Serial API) veya Node.js köprüsüyle çalışır.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><rect x='1.5' y='3.5' width='17' height='13' rx='2' fill='none' stroke='%232b5fa8' stroke-width='1.5'/><path d='M4 12h3l1.5-4 2 6 1.5-4H16' fill='none' stroke='%232b5fa8' stroke-width='1.5'/></svg>">
   <script>
     // Apply the saved theme before first paint to avoid a flash
     try {
@@ -14,101 +14,83 @@
       document.documentElement.setAttribute('data-theme', theme);
     } catch { document.documentElement.setAttribute('data-theme', 'light'); }
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
   <!-- __BUILD__ is replaced with the commit hash on deploy so browsers never mix old and new files -->
   <link rel="stylesheet" href="styles.css?v=__BUILD__">
 </head>
 <body>
-  <header class="header">
-    <div class="header-content">
-      <div class="logo">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M9 3v18m6-18v18M3 9h18M3 15h18"/>
+  <header class="app-header">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <rect x="1.5" y="3.5" width="17" height="13" rx="2"/>
+        <path d="M4 12h3l1.5-4 2 6 1.5-4H16"/>
+      </svg>
+      <span>Serial Web Viewer</span>
+    </div>
+
+    <nav class="tabs" id="view-tabs" role="tablist" aria-label="Görünüm">
+      <button type="button" class="tab active" data-view="monitor" role="tab" aria-selected="true">Monitör</button>
+      <button type="button" class="tab" data-view="production" role="tab" aria-selected="false">Üretim Testi</button>
+    </nav>
+
+    <div class="header-right">
+      <div class="conn-status" id="connection-status" role="status" aria-live="polite">
+        <span class="conn-dot"></span>
+        <span class="status-text">Bağlı değil</span>
+      </div>
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Açık / koyu tema" title="Tema">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/>
         </svg>
-        <h1>Serial Viewer</h1>
-      </div>
-      <nav class="view-tabs" id="view-tabs" role="tablist" aria-label="Görünüm">
-        <button type="button" class="view-tab active" data-view="monitor" role="tab" aria-selected="true">Monitör</button>
-        <button type="button" class="view-tab" data-view="production" role="tab" aria-selected="false">Üretim Testi</button>
-      </nav>
-      <div class="header-actions">
-        <a class="theme-toggle" href="https://github.com/sahintaha/serial-web-viewer" target="_blank" rel="noopener" aria-label="GitHub deposu" title="GitHub">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5z"/>
-          </svg>
-        </a>
-        <button class="theme-toggle" id="theme-toggle" aria-label="Temayı değiştir" title="Tema">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="5"/>
-            <path d="M12 1v6m0 6v6M23 12h-6m-6 0H1M20.364 3.636l-4.243 4.243m0 4.242l4.243 4.243M3.636 20.364l4.243-4.243m0-4.242L3.636 7.636"/>
-          </svg>
-        </button>
-        <div class="connection-status" id="connection-status" role="status" aria-live="polite">
-          <span class="status-indicator"></span>
-          <span class="status-text">Bağlantı Yok</span>
-        </div>
-      </div>
+      </button>
+      <a class="icon-btn" href="https://github.com/sahintaha/serial-web-viewer" target="_blank" rel="noopener" aria-label="GitHub deposu" title="Kaynak kod">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5z"/>
+        </svg>
+      </a>
     </div>
   </header>
 
   <div id="support-banner" class="banner hidden" role="note"></div>
 
-  <div class="container">
+  <div class="layout">
     <aside class="sidebar">
-      <!-- Connection -->
-      <section class="card">
-        <div class="card-header">
-          <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M12 2v6m0 6v6M6 12h6m-6 0h6"/>
-            </svg>
-            Bağlantı
-          </h2>
-        </div>
-        <div class="card-content">
-          <div class="segmented" id="mode-selector" role="radiogroup" aria-label="Bağlantı modu">
-            <button type="button" class="segment" data-mode="webserial" role="radio" title="Tarayıcıdan doğrudan USB seri porta bağlan (Chrome / Edge)">Tarayıcı</button>
-            <button type="button" class="segment" data-mode="server" role="radio" title="Node.js sunucusu üzerinden bağlan (npm start)">Sunucu</button>
-            <button type="button" class="segment" data-mode="demo" role="radio" title="Donanım olmadan sahte sensör verisi">Demo</button>
+      <section class="panel">
+        <div class="panel-head"><h2>Bağlantı</h2></div>
+        <div class="panel-body">
+          <div class="seg" id="mode-selector" role="radiogroup" aria-label="Bağlantı modu">
+            <button type="button" class="seg-item" data-mode="webserial" role="radio" title="Tarayıcıdan doğrudan USB seri porta bağlan (Chrome / Edge)">Tarayıcı</button>
+            <button type="button" class="seg-item" data-mode="server" role="radio" title="Node.js sunucusu üzerinden bağlan (npm start)">Sunucu</button>
+            <button type="button" class="seg-item" data-mode="demo" role="radio" title="Donanım olmadan örnek veri">Demo</button>
           </div>
-          <p class="mode-hint" id="mode-hint"></p>
+          <p class="hint" id="mode-hint"></p>
 
-          <!-- Server mode: port pickers -->
           <div id="server-ports" class="hidden">
-            <div class="form-group form-group-compact">
-              <label class="form-label form-label-compact" for="receiver-select">Alıcı port</label>
-              <div class="port-selector">
-                <select id="receiver-select" class="form-select form-select-compact"></select>
-                <input type="text" id="receiver-custom" class="form-input form-input-compact hidden" placeholder="/dev/ttyUSB0 veya COM3">
-                <button type="button" class="btn-icon-only" id="refresh-ports" title="Portları yenile" aria-label="Portları yenile">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                  </svg>
-                </button>
+            <div class="field">
+              <label class="label" for="receiver-select">Alıcı port</label>
+              <div class="row">
+                <select id="receiver-select" class="select"></select>
+                <input type="text" id="receiver-custom" class="input hidden" placeholder="/dev/ttyUSB0 veya COM3">
+                <button type="button" class="btn" id="refresh-ports" title="Port listesini yenile">Yenile</button>
               </div>
-              <label class="checkbox-label checkbox-label-compact">
-                <input type="checkbox" id="receiver-custom-toggle">
-                <span>Elle gir</span>
-              </label>
+              <label class="check"><input type="checkbox" id="receiver-custom-toggle"> Elle gir</label>
             </div>
-
-            <div class="form-group form-group-compact">
-              <label class="form-label form-label-compact" for="transmitter-select">Verici port <span class="muted">(opsiyonel, boşsa alıcıya yazılır)</span></label>
-              <div class="port-selector">
-                <select id="transmitter-select" class="form-select form-select-compact"></select>
-                <input type="text" id="transmitter-custom" class="form-input form-input-compact hidden" placeholder="/dev/ttyUSB1 veya COM4">
-              </div>
-              <label class="checkbox-label checkbox-label-compact">
-                <input type="checkbox" id="transmitter-custom-toggle">
-                <span>Elle gir</span>
-              </label>
+            <div class="field">
+              <label class="label" for="transmitter-select">Verici port <span class="muted">(boşsa alıcıya yazılır)</span></label>
+              <select id="transmitter-select" class="select"></select>
+              <input type="text" id="transmitter-custom" class="input hidden" placeholder="/dev/ttyUSB1 veya COM4">
+              <label class="check"><input type="checkbox" id="transmitter-custom-toggle"> Elle gir</label>
             </div>
           </div>
 
-          <div class="form-group form-group-compact" id="baud-group">
-            <label class="form-label form-label-compact" for="baud-select">Baud rate</label>
-            <select id="baud-select" class="form-select form-select-compact">
+          <div class="field" id="baud-group">
+            <label class="label" for="baud-select">Baud rate</label>
+            <select id="baud-select" class="select">
               <option>300</option><option>1200</option><option>2400</option><option>4800</option>
               <option selected>9600</option><option>19200</option><option>38400</option><option>57600</option>
               <option>74880</option><option>115200</option><option>230400</option><option>250000</option>
@@ -116,164 +98,128 @@
             </select>
           </div>
 
-          <button id="connection-button" class="btn btn-primary btn-block" type="button">
-            <span class="btn-icon">🔌</span>
-            <span>Bağlan</span>
-          </button>
+          <button id="connection-button" class="btn btn-primary btn-block" type="button">Bağlan</button>
         </div>
       </section>
 
-      <!-- Labels -->
-      <section class="card monitor-only">
-        <div class="card-header">
-          <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M7 7h10M7 12h10M7 17h10M4 7h.01M4 12h.01M4 17h.01"/>
-            </svg>
-            Etiketler
-          </h2>
-        </div>
-        <div class="card-content">
-          <p class="mode-hint">Anahtar → görünen ad. <code>A25.5</code>, <code>temp:25</code> ve <code>{"temp":25}</code> formatları otomatik algılanır.</p>
+      <section class="panel monitor-only">
+        <div class="panel-head"><h2>Etiketler</h2></div>
+        <div class="panel-body">
+          <p class="hint">Anahtar → görünen ad. <code>A25.5</code>, <code>temp:25</code> ve <code>{"temp":25}</code> biçimleri otomatik algılanır.</p>
           <div id="label-configs" class="label-configs"></div>
-          <button class="btn btn-secondary btn-block btn-sm mt-md" type="button" data-action="add-label">
-            <span>+ Yeni Etiket Ekle</span>
-          </button>
+          <button class="btn btn-sm btn-block mt-sm" type="button" data-action="add-label">Etiket ekle</button>
         </div>
       </section>
 
-      <!-- Send -->
-      <section class="card monitor-only">
-        <div class="card-header">
-          <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-            Veri Gönder
-          </h2>
-        </div>
-        <div class="card-content">
-          <form class="form-group" id="send-form">
-            <input type="text" id="send-input" class="form-input" placeholder="Gönderilecek komut..." maxlength="1024" autocomplete="off">
-            <button type="submit" class="btn btn-primary btn-block mt-sm">
-              <span class="btn-icon">📨</span>
-              <span>Gönder</span>
-            </button>
+      <section class="panel monitor-only">
+        <div class="panel-head"><h2>Komut gönder</h2></div>
+        <div class="panel-body">
+          <form id="send-form" class="row">
+            <input type="text" id="send-input" class="input mono" placeholder="ör. MEAS?" maxlength="1024" autocomplete="off" spellcheck="false">
+            <button type="submit" class="btn btn-primary">Gönder</button>
           </form>
-
-          <div class="divider"></div>
-
-          <div class="form-group">
-            <label class="checkbox-label">
-              <input type="checkbox" id="auto-send-checkbox">
-              <span>Bu komutu düzenli aralıkla gönder</span>
-            </label>
-            <div class="form-group-inline">
-              <label class="form-label-small" for="send-interval">Aralık (ms):</label>
-              <input type="number" id="send-interval" class="form-input" value="1000" min="100" step="100">
-            </div>
+          <label class="check mt-md"><input type="checkbox" id="auto-send-checkbox"> Düzenli aralıkla gönder</label>
+          <div class="row mt-sm">
+            <label class="label" for="send-interval">Aralık (ms)</label>
+            <input type="number" id="send-interval" class="input" value="1000" min="100" step="100">
           </div>
         </div>
       </section>
     </aside>
 
-    <main class="main-content" id="panels-container">
-      <div class="panel-add-wrapper">
-        <button class="btn btn-secondary btn-block" type="button" data-action="show-add-panel">
-          <span class="btn-icon">+</span>
-          <span>Yeni Panel Ekle</span>
-        </button>
-      </div>
+    <main class="monitor-grid" id="panels-container">
+      <button class="panel-add" type="button" data-action="show-add-panel">Panel ekle</button>
       <!-- Panels are rendered by js/app.js -->
     </main>
 
     <!-- Production test (js/production-ui.js) -->
     <main class="production hidden" id="production-view">
-      <section class="card">
-        <div class="card-header">
-          <div>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
             <h2>Üretim Testi</h2>
-            <p class="card-subtitle">Seri numarası → ölçüm → limit kontrolü → PASS / FAIL → kayıt</p>
+            <span class="panel-sub">Seri numarası, ölçüm, limit kontrolü, karar ve kayıt</span>
           </div>
           <div class="pt-station">
-            <div><span class="muted">Cihaz</span> <strong id="pt-device">Bağlı değil</strong></div>
-            <div><span class="muted">Kayıt</span> <strong id="pt-storage"></strong></div>
+            <span>Cihaz <strong id="pt-device">Bağlı değil</strong></span>
+            <span>Kayıt <strong id="pt-storage"></strong></span>
           </div>
         </div>
-        <div class="card-content">
+        <div class="panel-body">
           <form id="pt-form" class="pt-form" autocomplete="off">
-            <label class="pt-field pt-field-serial">
-              <span class="form-label-small">Ürün seri numarası</span>
-              <input id="pt-serial" class="form-input pt-serial" placeholder="PCB-000142" maxlength="40" spellcheck="false" autocapitalize="characters">
+            <label class="field">
+              <span class="label">Ürün seri numarası</span>
+              <input id="pt-serial" class="input pt-serial" placeholder="PCB-000142" maxlength="40" spellcheck="false" autocapitalize="characters">
             </label>
-            <label class="pt-field">
-              <span class="form-label-small">Operatör</span>
-              <input id="pt-operator" class="form-input" placeholder="Opsiyonel" maxlength="64">
+            <label class="field">
+              <span class="label">Operatör</span>
+              <input id="pt-operator" class="input" placeholder="Opsiyonel" maxlength="64">
             </label>
-            <label class="pt-field pt-field-small">
-              <span class="form-label-small">Örnek sayısı</span>
-              <input id="pt-samples" class="form-input" type="number" min="1" max="100" step="1" value="5">
+            <label class="field">
+              <span class="label">Örnek sayısı</span>
+              <input id="pt-samples" class="input" type="number" min="1" max="100" step="1" value="5">
             </label>
             <div class="pt-actions">
-              <button type="submit" id="pt-start" class="btn btn-primary">▶ Testi Başlat</button>
-              <button type="button" id="pt-retest" class="btn btn-secondary" disabled>↻ Tekrar Test</button>
-              <button type="button" id="pt-cancel" class="btn btn-secondary hidden">✕ İptal</button>
+              <button type="submit" id="pt-start" class="btn btn-primary">Testi başlat</button>
+              <button type="button" id="pt-retest" class="btn" disabled>Tekrar test</button>
+              <button type="button" id="pt-cancel" class="btn btn-stop hidden">İptal</button>
             </div>
           </form>
-
           <div id="pt-result" class="pt-result" role="status" aria-live="polite"></div>
           <div id="pt-measurements" class="pt-measurements"></div>
         </div>
       </section>
 
-      <section class="card">
-        <div class="card-header">
-          <div>
-            <h2>Ölçüm Limitleri</h2>
-            <p class="card-subtitle">Anahtar, seri satırdaki alan adıdır (ör. <code>V5.02</code> → <code>V</code>). Sınırlar dahildir.</p>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>Ölçüm limitleri</h2>
+            <span class="panel-sub">Anahtar, satırdaki alan adıdır (<code>V5.02</code> → <code>V</code>). Sınırlar dahildir.</span>
           </div>
         </div>
-        <div class="card-content">
-          <div class="pt-table-wrap">
-            <table class="pt-table pt-limits">
+        <div class="panel-body">
+          <div class="table-wrap">
+            <table class="table">
               <thead><tr><th>Anahtar</th><th>Ad</th><th>Birim</th><th>Min</th><th>Max</th><th></th></tr></thead>
               <tbody id="pt-limits-body"></tbody>
             </table>
           </div>
           <ul id="pt-limits-errors" class="pt-errors"></ul>
-          <div class="pt-actions mt-md">
-            <button type="button" id="pt-limits-add" class="btn btn-secondary btn-sm">+ Limit Ekle</button>
-            <button type="button" id="pt-limits-reset" class="btn btn-secondary btn-sm">Varsayılanlar</button>
-            <button type="button" id="pt-limits-save" class="btn btn-primary btn-sm">Kaydet</button>
+          <div class="row mt-md">
+            <button type="button" id="pt-limits-add" class="btn btn-sm">Limit ekle</button>
+            <button type="button" id="pt-limits-reset" class="btn btn-sm">Varsayılanlar</button>
+            <button type="button" id="pt-limits-save" class="btn btn-sm btn-primary">Kaydet</button>
           </div>
         </div>
       </section>
 
-      <section class="card">
-        <div class="card-header">
-          <div>
-            <h2>Test Geçmişi</h2>
-            <p class="card-subtitle">Seri numarası, sonuç ve tarihe göre sorgulayın; CSV rapor alın</p>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>Test geçmişi</h2>
+            <span class="panel-sub">Seri numarası, sonuç ve tarih aralığına göre sorgu</span>
           </div>
-          <button type="button" id="pt-export" class="btn btn-secondary btn-sm">⬇ CSV Rapor</button>
+          <div class="panel-actions">
+            <button type="button" id="pt-export" class="btn btn-sm">CSV indir</button>
+          </div>
         </div>
-        <div class="card-content">
+        <div class="panel-body">
           <form id="pt-filters" class="pt-filters">
-            <input id="pt-filter-serial" class="form-input" placeholder="Seri no içerir..." aria-label="Seri numarası filtresi">
-            <select id="pt-filter-result" class="form-select" aria-label="Sonuç filtresi">
+            <input id="pt-filter-serial" class="input" placeholder="Seri no içerir" aria-label="Seri numarası filtresi">
+            <select id="pt-filter-result" class="select" aria-label="Sonuç filtresi">
               <option value="">Tüm sonuçlar</option>
               <option value="PASS">PASS</option>
               <option value="FAIL">FAIL</option>
               <option value="ERROR">HATA</option>
             </select>
-            <input id="pt-filter-from" class="form-input" type="date" aria-label="Başlangıç tarihi">
-            <input id="pt-filter-to" class="form-input" type="date" aria-label="Bitiş tarihi">
-            <button type="submit" class="btn btn-primary btn-sm">Sorgula</button>
+            <input id="pt-filter-from" class="input" type="date" aria-label="Başlangıç tarihi">
+            <input id="pt-filter-to" class="input" type="date" aria-label="Bitiş tarihi">
+            <button type="submit" class="btn btn-primary">Sorgula</button>
           </form>
           <div id="pt-stats" class="pt-stats"></div>
-          <div class="pt-table-wrap">
-            <table class="pt-table">
-              <thead><tr><th>Tarih</th><th>Seri No</th><th>Deneme</th><th>Sonuç</th><th>Ölçümler</th><th>Sebep</th><th></th></tr></thead>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Tarih</th><th>Seri no</th><th>Deneme</th><th>Sonuç</th><th>Ölçümler</th><th>Sebep</th><th></th></tr></thead>
               <tbody id="pt-history-body"></tbody>
             </table>
           </div>
@@ -283,34 +229,28 @@
   </div>
 
   <div id="toast" class="toast" role="alert">
-    <div class="toast-content">
-      <span class="toast-icon" aria-hidden="true"></span>
-      <span id="toast-message"></span>
-    </div>
-    <button class="toast-close" type="button" data-action="close-toast" aria-label="Kapat">×</button>
+    <span id="toast-message"></span>
+    <button class="icon-btn sm" type="button" data-action="close-toast" aria-label="Kapat">&times;</button>
   </div>
 
   <div id="add-panel-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="add-panel-title">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 id="add-panel-title">Yeni Panel Ekle</h2>
-        <button class="modal-close" type="button" data-action="close-add-panel" aria-label="Kapat">×</button>
-      </div>
-      <div class="modal-body">
-        <div class="panel-type-selector">
-          <button type="button" class="panel-type-option" data-action="add-panel" data-type="raw">
-            <h3>Gelen Veri</h3>
-            <p>Ham seri port satırları</p>
-          </button>
-          <button type="button" class="panel-type-option" data-action="add-panel" data-type="tagged">
-            <h3>Etiketlenmiş Veri</h3>
-            <p>Son satırın alanları</p>
-          </button>
-          <button type="button" class="panel-type-option" data-action="add-panel" data-type="chart">
-            <h3>Grafik</h3>
-            <p>Sayısal alanların zaman grafiği</p>
-          </button>
+    <div class="modal-box">
+      <div class="panel-head">
+        <h2 id="add-panel-title">Panel ekle</h2>
+        <div class="panel-actions">
+          <button class="icon-btn sm" type="button" data-action="close-add-panel" aria-label="Kapat">&times;</button>
         </div>
+      </div>
+      <div class="panel-body choices">
+        <button type="button" class="choice" data-action="add-panel" data-type="raw">
+          <strong>Gelen veri</strong><span>Ham seri port satırları, zaman damgalı</span>
+        </button>
+        <button type="button" class="choice" data-action="add-panel" data-type="tagged">
+          <strong>Son değerler</strong><span>Son satırdaki alanlar, etiketlenmiş</span>
+        </button>
+        <button type="button" class="choice" data-action="add-panel" data-type="chart">
+          <strong>Grafik</strong><span>Sayısal alanların zaman grafiği</span>
+        </button>
       </div>
     </div>
   </div>
