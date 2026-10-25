@@ -4,6 +4,10 @@ const path = require('path');
 const { Server } = require('socket.io');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
+const { openResultsDb } = require('./db');
+
+// Validation / PASS-FAIL logic is shared with the browser (ES module)
+const productionModule = import('./public/js/production.js');
 
 // Optional .env support (Node >= 20.12) without an extra dependency
 try {
@@ -17,13 +21,15 @@ const HOST = process.env.HOST || '127.0.0.1';
 const DEFAULT_BAUD_RATE = Number(process.env.BAUD_RATE) || 9600;
 const BAUD_RATES = [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 74880, 115200, 230400, 250000, 500000, 1000000];
 const MAX_MESSAGE_LENGTH = 1024;
+const DEFAULT_DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'serial-viewer.db');
 
 /**
  * Creates the HTTP + Socket.io server. All browser tabs share the same
  * serial connection, so state lives here and every event is broadcast.
  */
-function createServer() {
+function createServer({ dbPath = DEFAULT_DB_PATH } = {}) {
   const app = express();
+  const db = openResultsDb(dbPath);
   const server = http.createServer(app);
   const io = new Server(server);
 
@@ -38,8 +44,78 @@ function createServer() {
 
   app.use(express.static(path.join(__dirname, 'public')));
 
+  app.use(express.json({ limit: '256kb' }));
+
   app.get('/health', (req, res) => {
-    res.json({ status: 'ok', connected: state.connected });
+    res.json({ status: 'ok', connected: state.connected, storage: 'sqlite' });
+  });
+
+  // ---------- production test results ----------
+  function parseFilters(query, { maxLimit = 1000 } = {}) {
+    const errors = [];
+    const filters = {};
+    if (query.serial) filters.serial = String(query.serial).trim().toUpperCase().slice(0, 40);
+    if (query.result) {
+      if (!['PASS', 'FAIL', 'ERROR'].includes(query.result)) errors.push('Geçersiz sonuç filtresi');
+      else filters.result = query.result;
+    }
+    for (const key of ['from', 'to']) {
+      if (!query[key]) continue;
+      const time = Date.parse(query[key]);
+      if (Number.isNaN(time)) errors.push(`Geçersiz tarih: ${key}`);
+      else filters[key] = new Date(time).toISOString();
+    }
+    const limit = query.limit === undefined ? 100 : Number(query.limit);
+    const offset = query.offset === undefined ? 0 : Number(query.offset);
+    if (!Number.isInteger(limit) || limit < 1 || limit > maxLimit) errors.push(`limit 1–${maxLimit} arasında olmalı`);
+    if (!Number.isInteger(offset) || offset < 0) errors.push('offset geçersiz');
+    filters.limit = limit;
+    filters.offset = offset;
+    return { filters, errors };
+  }
+
+  app.post('/api/tests', async (req, res) => {
+    const { prepareTestRecord } = await productionModule;
+    const { errors, value } = prepareTestRecord(req.body);
+    if (errors.length) return res.status(400).json({ errors });
+    try {
+      res.status(201).json(db.insert(value));
+    } catch (err) {
+      console.error('❌ Test sonucu kaydedilemedi:', err.message);
+      res.status(500).json({ errors: ['Test sonucu kaydedilemedi'] });
+    }
+  });
+
+  app.get('/api/tests', (req, res) => {
+    const { filters, errors } = parseFilters(req.query);
+    if (errors.length) return res.status(400).json({ errors });
+    res.json(db.query(filters));
+  });
+
+  app.get('/api/tests/export.csv', async (req, res) => {
+    const { resultsToCsv } = await productionModule;
+    const { filters, errors } = parseFilters({ limit: 100000, ...req.query }, { maxLimit: 100000 });
+    if (errors.length) return res.status(400).json({ errors });
+    const { items } = db.query(filters);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    res.type('text/csv; charset=utf-8');
+    res.attachment(`test-raporu-${stamp}.csv`);
+    // BOM so Excel opens Turkish characters correctly
+    res.send('\uFEFF' + resultsToCsv(items));
+  });
+
+  app.get('/api/tests/:id', (req, res) => {
+    const record = db.get(Number(req.params.id));
+    if (!record) return res.status(404).json({ errors: ['Kayıt bulunamadı'] });
+    res.json(record);
+  });
+
+  // Malformed JSON bodies end up here instead of an HTML stack trace
+  app.use((err, req, res, next) => {
+    if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') {
+      return res.status(400).json({ errors: ['Geçersiz istek gövdesi'] });
+    }
+    next(err);
   });
 
   app.get('/ports', async (req, res) => {
@@ -181,16 +257,19 @@ function createServer() {
     });
   });
 
-  return { app, server, io, closeSerialPorts };
+  server.on('close', () => db.close());
+
+  return { app, server, io, db, closeSerialPorts };
 }
 
 if (require.main === module) {
-  const { server, closeSerialPorts } = createServer();
+  const { server, db, closeSerialPorts } = createServer();
   server.listen(PORT, HOST, () => {
     console.log(`🚀 Serial Web Viewer çalışıyor: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   });
   process.on('SIGINT', () => {
     closeSerialPorts();
+    db.close();
     process.exit(0);
   });
 }

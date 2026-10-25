@@ -27,7 +27,7 @@
   },
   "homepage": "https://sahintaha.github.io/serial-web-viewer/",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "dependencies": {
     "@serialport/parser-readline": "^12.0.0",

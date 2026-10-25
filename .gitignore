@@ -13,3 +13,6 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Production test database
+data/

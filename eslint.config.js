@@ -5,7 +5,7 @@ module.exports = [
   { ignores: ['node_modules/'] },
   js.configs.recommended,
   {
-    files: ['server.js', 'eslint.config.js', 'test/**/*.js'],
+    files: ['server.js', 'db.js', 'eslint.config.js', 'test/**/*.js'],
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
   },
   {
