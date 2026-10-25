@@ -106,7 +106,7 @@ export function createLineSplitter(maxLineLength = 4096) {
   };
 }
 
-function csvCell(value) {
+export function csvCell(value) {
   const s = value === null || value === undefined ? '' : String(value);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
