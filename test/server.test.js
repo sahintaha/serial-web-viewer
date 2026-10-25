@@ -223,3 +223,14 @@ test('a version 1 database is migrated in place without losing results', () => {
   assert.equal(items[0].measurements[0].value, 5.01);
   db.close();
 });
+
+test('an overflowing measurement is stored as ERROR with an INVALID measurement', async () => {
+  const steps = [...GOOD_STEPS];
+  steps[4] = { replies: ['V1e999,I115', 'V-1e999,I115', 'V5.0,I115', 'V5.0,I115', 'V5.0,I115'] };
+  const { status, body } = await api('POST', '/api/tests', run('SNS-001999', steps));
+  assert.equal(status, 201);
+  assert.equal(body.result, 'ERROR');
+  assert.equal(body.measurements[0].status, 'INVALID');
+  assert.equal(body.measurements[0].mode, 'mean');
+  assert.equal(body.measurements[1].stats.n, 5);
+});

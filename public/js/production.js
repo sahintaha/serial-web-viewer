@@ -55,6 +55,24 @@ function cleanDataList(list, max, label, errors) {
   });
 }
 
+/** Raw data must have the shape its step type produces; e.g. no more samples than the recipe asks for. */
+function checkDataMatchesRecipe(steps, dataList, label, errors) {
+  dataList.forEach((data, i) => {
+    if (!data) return;
+    const step = steps[i];
+    const where = `${label} ${i + 1}`;
+    if (step.type === 'measure') {
+      if (!Array.isArray(data.replies)) errors.push(`${where}: ölçüm cevapları eksik`);
+      else if (data.replies.length > step.samples) {
+        errors.push(`${where}: reçetede ${step.samples} örnek var, ${data.replies.length} cevap gönderildi`);
+      }
+    } else if ('replies' in data) {
+      errors.push(`${where}: bu adım tipi ölçüm cevabı içeremez`);
+    }
+    if (step.type !== 'confirm' && 'answer' in data) errors.push(`${where}: bu adım tipi operatör cevabı içeremez`);
+  });
+}
+
 /**
  * Validates a finished run sent by the browser and evaluates it against the exact
  * recipe revision it was run with. Used by server.js (and the browser-only store)
@@ -81,6 +99,8 @@ export function prepareTestRecord(body, product) {
 
   const stepsData = cleanDataList(body?.steps, product.recipe.steps.length, 'Adım', errors);
   const teardownData = cleanDataList(body?.teardown, product.recipe.teardown.length, 'Teardown', errors);
+  checkDataMatchesRecipe(product.recipe.steps, stepsData, 'Adım', errors);
+  checkDataMatchesRecipe(product.recipe.teardown, teardownData, 'Teardown', errors);
   const error = body?.error ? String(body.error).slice(0, 200) : null;
   if (errors.length) return { errors };
 

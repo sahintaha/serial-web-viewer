@@ -51,11 +51,22 @@ A product recipe (see *Products and recipes* in the app) is a list of steps:
 | Step | What the station does | PASS when |
 |---|---|---|
 | `command` | send `send`, wait up to `timeoutMs`, resend up to `retries` times on timeout | the reply matches the `expect` glob (`*` any text, `?` one character) |
-| `measure` | send `send` `samples` times, `intervalMs` apart | the mean of each limit key is within `[min, max]` (inclusive) |
+| `measure` | send `send` `samples` times, `intervalMs` apart | each limit key has exactly `samples` finite values and the value chosen by `evaluate` is within `[min, max]` (inclusive) |
 | `delay` | wait `ms` (settling time) | always |
 | `confirm` | optionally send a command, then ask the operator a yes/no question | the operator answers yes |
 
 `{serial}` in a command is replaced by the scanned serial number.
+
+`evaluate` (measure steps, part of the recipe revision and stored with every result):
+
+| Value | Checked against the limits |
+|---|---|
+| `mean` (default) | the mean of the samples |
+| `min` / `max` | the smallest / largest sample |
+| `all` | every sample; the reported value is the sample furthest outside |
+
+A value that is not a finite number (`NaN`, `Infinity`, `1e999`, text) makes the measurement
+`INVALID` and the step ERROR; more replies than `samples` are rejected. Neither can PASS.
 
 Step outcomes:
 

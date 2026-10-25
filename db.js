@@ -60,6 +60,33 @@ const MIGRATIONS = [
   ALTER TABLE measurements ADD COLUMN step            INTEGER;
   CREATE INDEX idx_results_product ON test_results(product_code);
   `,
+  // v3: measurement statistics, evaluation mode and the INVALID status (overflow / non-numeric)
+  `
+  CREATE TABLE measurements_v3 (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    test_id    INTEGER NOT NULL REFERENCES test_results(id) ON DELETE CASCADE,
+    step       INTEGER,
+    key        TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
+    unit       TEXT,
+    value      REAL,
+    min        REAL    NOT NULL,
+    max        REAL    NOT NULL,
+    count      INTEGER NOT NULL,
+    status     TEXT    NOT NULL CHECK (status IN ('PASS', 'FAIL', 'MISSING', 'INVALID')),
+    mode       TEXT    NOT NULL DEFAULT 'mean',
+    invalid    INTEGER NOT NULL DEFAULT 0,
+    stat_mean  REAL,
+    stat_min   REAL,
+    stat_max   REAL,
+    stat_sd    REAL
+  );
+  INSERT INTO measurements_v3 (id, test_id, step, key, name, unit, value, min, max, count, status, stat_mean)
+    SELECT id, test_id, step, key, name, unit, value, min, max, count, status, value FROM measurements;
+  DROP TABLE measurements;
+  ALTER TABLE measurements_v3 RENAME TO measurements;
+  CREATE INDEX idx_measurements_test ON measurements(test_id);
+  `,
 ];
 
 /** Legacy v1 columns are filled for new rows so old readers keep working. */
@@ -172,8 +199,8 @@ function openResultsDb(file) {
                               product_code, product_name, recipe_revision, failed_step, steps_json, log_json)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const insertMeasurement = db.prepare(`
-    INSERT INTO measurements (test_id, step, key, name, unit, value, min, max, count, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    INSERT INTO measurements (test_id, step, key, name, unit, value, min, max, count, status, mode, invalid, stat_mean, stat_min, stat_max, stat_sd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   function toRecord(row, measurements) {
     const steps = row.steps_json ? JSON.parse(row.steps_json) : { steps: [], teardown: [] };
@@ -203,6 +230,9 @@ function openResultsDb(file) {
         max: m.max,
         count: m.count,
         status: m.status,
+        mode: m.mode,
+        invalid: m.invalid,
+        stats: { n: m.count, mean: m.stat_mean, min: m.stat_min, max: m.stat_max, sd: m.stat_sd },
       })),
     };
   }
@@ -229,7 +259,10 @@ function openResultsDb(file) {
       );
       const id = Number(lastInsertRowid);
       for (const m of test.measurements) {
-        insertMeasurement.run(id, m.step, m.key, m.name, m.unit || null, m.value, m.min, m.max, m.count, m.status);
+        insertMeasurement.run(
+          id, m.step, m.key, m.name, m.unit || null, m.value, m.min, m.max, m.count, m.status,
+          m.mode ?? 'mean', m.invalid ?? 0, m.stats?.mean ?? null, m.stats?.min ?? null, m.stats?.max ?? null, m.stats?.sd ?? null
+        );
       }
       return get(id);
     });

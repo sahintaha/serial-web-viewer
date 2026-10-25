@@ -6,12 +6,17 @@ const NUMBER_RE = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
 const KEY_VALUE_RE = /^([^:=]+?)\s*[:=]\s*(.*)$/;
 const PREFIX_VALUE_RE = /^([A-Za-z_]+)\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)$/;
 
-/** Returns a finite number for numeric strings, otherwise null. */
+/**
+ * Returns a finite number for numeric strings, otherwise null.
+ * "1e999" matches the syntax but overflows to Infinity, so the result is checked again.
+ */
 export function toNumber(raw) {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim();
-  return NUMBER_RE.test(trimmed) ? Number(trimmed) : null;
+  if (!NUMBER_RE.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
 }
 
 function parseJson(line) {

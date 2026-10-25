@@ -12,6 +12,14 @@
 import { parseLine } from './parser.js';
 
 export const STEP_TYPES = ['command', 'measure', 'delay', 'confirm'];
+
+/** How a measure step turns its samples into one value checked against the limits. */
+export const EVALUATION_MODES = {
+  mean: 'Ortalama',
+  min: 'En küçük örnek',
+  max: 'En büyük örnek',
+  all: 'Her örnek limit içinde',
+};
 export const TEARDOWN_TYPES = ['command', 'delay'];
 export const REPLY_PREFIX = '@';
 export const MAX_REPLY_LENGTH = 256;
@@ -189,6 +197,10 @@ function validateStep(raw, where, allowedTypes, errors) {
   } else {
     step.samples = num('samples', 1, 1, 100);
     step.intervalMs = num('intervalMs', 0, 0, 10000, ' ms');
+    step.evaluate = raw.evaluate ?? 'mean';
+    if (!(step.evaluate in EVALUATION_MODES)) {
+      errors.push(`${where}: evaluate ${Object.keys(EVALUATION_MODES).map((m) => `"${m}"`).join(', ')} olmalı`);
+    }
     const { limits, errors: limitErrors } = validateLimits(raw.limits, `${where}: `);
     step.limits = limits;
     errors.push(...limitErrors);
@@ -259,9 +271,45 @@ function checkReply(reply, expect, attempts) {
   return { status: 'PASS', reason: null };
 }
 
+/** Summary statistics of finite samples; null fields when they cannot be computed safely. */
+export function sampleStats(values) {
+  const n = values.length;
+  if (!n) return { n: 0, mean: null, min: null, max: null, sd: null };
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of values) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  // Mean via a running average so huge-but-finite samples cannot overflow the sum
+  let mean = 0;
+  values.forEach((v, i) => {
+    mean += (v - mean) / (i + 1);
+  });
+  let sd = null;
+  if (n > 1) {
+    const variance = values.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (n - 1);
+    sd = Math.sqrt(variance);
+  }
+  const finite = (x) => (Number.isFinite(x) ? x : null);
+  return { n, mean: finite(mean), min: finite(min), max: finite(max), sd: finite(sd) };
+}
+
+const inLimits = (value, limit) => Number.isFinite(value) && value >= limit.min && value <= limit.max;
+
+/**
+ * Evaluates a measure step. Never returns PASS unless every limit has exactly the
+ * configured number of finite samples and the evaluated value is finite and inside
+ * [min, max]. Non-numeric, overflowing ("1e999") or missing values make the step ERROR.
+ */
 function evaluateMeasure(step, data) {
   const replies = Array.isArray(data.replies) ? data.replies : [];
+  const mode = step.evaluate ?? 'mean';
+  if (replies.length > step.samples) {
+    return { status: 'ERROR', reason: `Reçetede ${step.samples} örnek tanımlı, ${replies.length} cevap kaydedildi`, measurements: [] };
+  }
   const values = Object.fromEntries(step.limits.map((l) => [l.key, []]));
+  const invalid = Object.fromEntries(step.limits.map((l) => [l.key, 0]));
   let timeouts = 0;
 
   for (const reply of replies) {
@@ -274,34 +322,62 @@ function evaluateMeasure(step, data) {
     const fields = parseLine(reply);
     for (const limit of step.limits) {
       const field = fields.find((f) => f.key === limit.key);
-      if (field && field.value !== null) values[limit.key].push(field.value);
+      if (!field) continue;
+      if (Number.isFinite(field.value)) values[limit.key].push(field.value);
+      else invalid[limit.key] += 1;
     }
   }
 
   const measurements = step.limits.map((limit) => {
-    const list = values[limit.key];
-    const value = list.length ? list.reduce((a, b) => a + b, 0) / list.length : null;
-    let status = 'PASS';
-    if (list.length < step.samples) status = 'MISSING';
-    else if (value < limit.min || value > limit.max) status = 'FAIL';
-    return { ...limit, value, count: list.length, status };
+    const samples = values[limit.key];
+    const stats = sampleStats(samples);
+    const base = { ...limit, mode, count: samples.length, invalid: invalid[limit.key], stats };
+    if (invalid[limit.key] > 0) return { ...base, value: stats.mean, status: 'INVALID' };
+    if (samples.length < step.samples) return { ...base, value: stats.mean, status: 'MISSING' };
+
+    let value;
+    let pass;
+    if (mode === 'all') {
+      // Report the sample furthest outside the limits (or the mean when all are inside)
+      const outside = samples.filter((v) => !inLimits(v, limit));
+      value = outside.length
+        ? outside.reduce((worst, v) => (Math.max(limit.min - v, v - limit.max) > Math.max(limit.min - worst, worst - limit.max) ? v : worst))
+        : stats.mean;
+      pass = outside.length === 0;
+    } else {
+      value = mode === 'min' ? stats.min : mode === 'max' ? stats.max : stats.mean;
+      pass = inLimits(value, limit);
+    }
+    if (!Number.isFinite(value) || Object.values(stats).some((s) => s !== null && !Number.isFinite(s))) {
+      return { ...base, value: null, status: 'INVALID' };
+    }
+    return { ...base, value, status: pass ? 'PASS' : 'FAIL' };
   });
 
   const failed = measurements.filter((m) => m.status === 'FAIL');
-  const missing = measurements.filter((m) => m.status === 'MISSING');
   if (failed.length) {
     const reason = failed
       .map((m) => {
         const unit = m.unit ? ` ${m.unit}` : '';
         const bound = m.value > m.max ? `> ${formatValue(m.max)}` : `< ${formatValue(m.min)}`;
-        return `${m.name} limit dışı (${formatValue(m.value)}${unit} ${bound}${unit})`;
+        const what = mode === 'mean' ? '' : ` (${EVALUATION_MODES[mode].toLowerCase()})`;
+        return `${m.name}${what} limit dışı (${formatValue(m.value)}${unit} ${bound}${unit})`;
       })
       .join('; ');
     return { status: 'FAIL', reason, measurements };
   }
+  const bad = measurements.filter((m) => m.status === 'INVALID');
+  if (bad.length) {
+    return { status: 'ERROR', reason: `Geçersiz ölçüm değeri (sayı değil / taşma): ${bad.map((m) => m.name).join(', ')}`, measurements };
+  }
+  const missing = measurements.filter((m) => m.status === 'MISSING');
   if (missing.length) {
     const detail = missing.map((m) => `${m.name} ${m.count}/${step.samples}`).join(', ');
     return { status: 'ERROR', reason: `Eksik ölçüm: ${detail}${timeouts ? ` (${timeouts} cevapsız istek)` : ''}`, measurements };
+  }
+  // Defensive: PASS only if every measurement explicitly passed
+  if (!measurements.every((m) => m.status === 'PASS')) {
+    return { status: 'ERROR', reason: 'Ölçüm değerlendirilemedi', measurements };
   }
   return { status: 'PASS', reason: null, measurements };
 }

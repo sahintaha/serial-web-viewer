@@ -13,6 +13,7 @@ import {
   renderCommand,
   replyText,
   formatValue,
+  EVALUATION_MODES,
 } from './recipe.js';
 import { runTest, sleep, abortError } from './runner.js';
 import { ServerStore, LocalStore } from './results-store.js';
@@ -139,7 +140,7 @@ function measurementCards(container, measureSteps) {
           { className: `pt-measure ${status ? 'pt-' + status.toLowerCase() : ''}` },
           el('div', { className: 'pt-measure-head' },
             el('span', { className: 'pt-measure-name', textContent: limit.name }),
-            el('span', { className: 'pt-measure-detail', textContent: m ? `${m.count}/${step.samples} örnek ort.` : step.name })),
+            el('span', { className: 'pt-measure-detail', textContent: m ? `${m.count}/${step.samples} örnek · ${EVALUATION_MODES[m.mode ?? 'mean'].toLowerCase()}` : step.name })),
           el('div', { className: 'pt-measure-value', textContent: value === null ? '—' : `${formatValue(value)}${unit}` }),
           gauge(limit, value),
           el('div', { className: 'pt-measure-limit', textContent: `${formatValue(limit.min)} … ${formatValue(limit.max)}${unit}` })
@@ -585,7 +586,7 @@ export function initProduction(app) {
       return;
     }
     const describe = (s) => {
-      if (s.type === 'measure') return s.limits.map((l) => `${l.key}: ${formatValue(l.min)}…${formatValue(l.max)}${l.unit ? ' ' + l.unit : ''}`).join(', ') + ` (${s.samples} örnek)`;
+      if (s.type === 'measure') return s.limits.map((l) => `${l.key}: ${formatValue(l.min)}…${formatValue(l.max)}${l.unit ? ' ' + l.unit : ''}`).join(', ') + ` (${s.samples} örnek, ${EVALUATION_MODES[s.evaluate ?? 'mean'].toLowerCase()})`;
       if (s.type === 'delay') return `${s.ms} ms`;
       if (s.type === 'confirm') return s.prompt;
       return s.expect;
