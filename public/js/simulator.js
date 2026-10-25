@@ -1,6 +1,8 @@
 // ============================================
 // DEVICE SIMULATOR — a virtual board that speaks the line protocol in
-// docs/protocol.md exactly like examples/arduino/svb_fixture does.
+// docs/protocol.md exactly like examples/arduino/svb_fixture does:
+// request ids with a reply cache (idempotent retries), a supply watchdog,
+// STATUS? / PING / WDT, and the legacy unnumbered form.
 //
 // Faults are deterministic: in "auto" mode a board's defect is derived from its
 // serial number, so retesting the same bad board fails again (as in real life),
@@ -17,7 +19,12 @@ export const FAULTS = {
   led: 'LED arızası',
   intermittent: 'Aralıklı iletişim',
   silent: 'Cevap vermiyor',
+  stuckpower: 'Besleme kapanmıyor (yapışmış röle)',
 };
+
+export const DEFAULT_WATCHDOG_MS = 3000;
+const REPLY_CACHE_SIZE = 8;
+const NUMBERED_RE = /^#([0-9A-Za-z]{1,8}) (.+)$/;
 
 /** FNV-1a: small, stable string hash. */
 function hash(text) {
@@ -48,15 +55,21 @@ const MODELS = {
 
 export class SimulatedBoard {
   /**
-   * @param {{random?: () => number}} options inject a seeded random for tests
+   * @param {{random?: () => number, now?: () => number}} options inject a seeded random / clock for tests
    */
-  constructor({ random = Math.random } = {}) {
+  constructor({ random = Math.random, now = Date.now } = {}) {
     this.random = random;
+    this.now = now;
     this.mode = 'auto';
     this.serial = null;
     this.powered = false;
     this.led = false;
     this.stream = true;
+    this.watchdogMs = DEFAULT_WATCHDOG_MS;
+    this.watchdogTripped = false;
+    this.lastCommandAt = now();
+    this.replyCache = []; // [{ id, command, reply }]
+    this.executed = 0; // commands actually executed (not replayed) — lets tests verify idempotency
     this.attempts = new Map(); // serial → how many times it was programmed (= test attempts)
     this.listeners = new Set();
   }
@@ -100,7 +113,24 @@ export class SimulatedBoard {
       mode: this.mode,
       powered: this.powered,
       led: this.led,
+      watchdogMs: this.watchdogMs,
+      watchdogTripped: this.watchdogTripped,
     };
+  }
+
+  /** Call periodically: the watchdog cuts the supply when the station goes quiet. */
+  tick(now = this.now()) {
+    if (this.powered && this.watchdogMs > 0 && now - this.lastCommandAt > this.watchdogMs) {
+      this.setSupply(false);
+      this.watchdogTripped = true;
+      this.notify();
+    }
+  }
+
+  setSupply(on) {
+    if (!on && this.fault === 'stuckpower') return; // a welded relay ignores the command
+    this.powered = on;
+    if (!on) this.led = false;
   }
 
   noise(scale) {
@@ -126,67 +156,98 @@ export class SimulatedBoard {
   }
 
   /**
-   * Handles one command line.
-   * @returns {string|null} reply line ("@..."), or null when the board stays silent
+   * Handles one command line, numbered ("#00A1 PWR ON") or not ("PWR ON").
+   * A numbered command whose id and text are in the reply cache is not executed
+   * again; the cached reply is replayed (idempotent retry).
+   * @returns {string|null} reply line, or null when the board stays silent
    */
-  handle(line) {
+  handle(line, now = this.now()) {
+    this.tick(now);
     const text = String(line).trim();
-    const upper = text.toUpperCase();
-    const reply = (body) => {
-      this.notify();
-      return `@${body}`;
-    };
-
+    const numbered = text.match(NUMBERED_RE);
+    const id = numbered ? numbered[1].toUpperCase() : null;
+    const command = numbered ? numbered[2].trim() : text;
     if (this.fault === 'silent') return null;
+    this.lastCommandAt = now; // any command feeds the watchdog
+
+    if (id) {
+      const cached = this.replyCache.find((c) => c.id === id);
+      if (cached) return cached.command === command ? cached.reply : `@#${id} ERR ID_REUSED`;
+    }
+    const body = this.execute(command, now);
+    if (body === null) return null;
+    this.notify();
+    if (!id) return `@${body}`;
+    const reply = `@#${id} ${body}`;
+    this.replyCache.push({ id, command, reply });
+    if (this.replyCache.length > REPLY_CACHE_SIZE) this.replyCache.shift();
+    return reply;
+  }
+
+  /** @returns {string|null} reply body; null = no reply */
+  execute(command, now) {
+    const upper = command.toUpperCase();
+    this.executed += 1;
 
     if (upper.startsWith('SN ')) {
-      const serial = text.slice(3).trim().toUpperCase();
-      if (!serial) return reply('ERR BAD_ARG');
+      const serial = command.slice(3).trim().toUpperCase();
+      if (!serial) return 'ERR BAD_ARG';
       if (serial !== this.serial) {
-        this.powered = false;
+        this.setSupply(false);
         this.led = false;
       }
       this.serial = serial;
       this.attempts.set(serial, (this.attempts.get(serial) ?? 0) + 1);
-      return reply('OK');
+      return 'OK';
+    }
+    if (upper.startsWith('WDT ')) {
+      const ms = Number(command.slice(4).trim());
+      if (!Number.isInteger(ms) || ms < 0 || ms > 60000) return 'ERR BAD_ARG';
+      this.watchdogMs = ms;
+      return 'OK';
     }
 
     switch (upper) {
+      case 'PING':
+        return 'OK';
       case 'SN?':
-        return reply(`SN ${this.serial ?? '-'}`);
+        return `SN ${this.serial ?? '-'}`;
       case 'ID?':
-        return reply(`ID ${this.model} FW${this.firmware}`);
+        return `ID ${this.model} FW${this.firmware}`;
+      case 'STATUS?':
+        return `PWR=${this.powered ? 1 : 0} LED=${this.led ? 1 : 0} WDT=${this.watchdogTripped ? 1 : 0}`;
       case 'PWR ON':
-        this.powered = true;
-        return reply('OK');
+        this.setSupply(true);
+        this.watchdogTripped = false;
+        this.lastCommandAt = now;
+        return 'OK';
       case 'PWR OFF':
-        this.powered = false;
-        this.led = false;
-        return reply('OK');
+        this.setSupply(false);
+        return 'OK';
       case 'MEAS?':
-        if (!this.powered) return reply('ERR NOT_POWERED');
+        if (!this.powered) return 'ERR NOT_POWERED';
         // An intermittent board drops measurement replies on its first attempt only
         if (this.fault === 'intermittent' && (this.attempts.get(this.serial) ?? 0) <= 1) return null;
-        return reply(this.measure());
+        return this.measure();
       case 'SELFTEST':
-        if (!this.powered) return reply('ERR NOT_POWERED');
-        return reply(this.fault === 'selftest' ? 'ERR SENSOR_FAULT' : 'OK');
+        if (!this.powered) return 'ERR NOT_POWERED';
+        return this.fault === 'selftest' ? 'ERR SENSOR_FAULT' : 'OK';
       case 'LED ON':
-        if (!this.powered) return reply('ERR NOT_POWERED');
+        if (!this.powered) return 'ERR NOT_POWERED';
         // A broken LED still acknowledges the command: only a human can see the difference
         this.led = this.fault !== 'led';
-        return reply('OK');
+        return 'OK';
       case 'LED OFF':
         this.led = false;
-        return reply('OK');
+        return 'OK';
       case 'STREAM ON':
         this.stream = true;
-        return reply('OK');
+        return 'OK';
       case 'STREAM OFF':
         this.stream = false;
-        return reply('OK');
+        return 'OK';
       default:
-        return reply('ERR UNKNOWN_CMD');
+        return 'ERR UNKNOWN_CMD';
     }
   }
 }

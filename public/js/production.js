@@ -39,6 +39,10 @@ function cleanStepData(raw) {
     data.answer = raw.answer;
   }
   if ('durationMs' in raw && Number.isFinite(raw.durationMs)) data.durationMs = Math.max(0, Math.round(raw.durationMs));
+  if ('error' in raw) {
+    if (typeof raw.error !== 'string') return undefined;
+    data.error = raw.error.slice(0, 200);
+  }
   return data;
 }
 

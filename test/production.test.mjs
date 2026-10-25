@@ -24,7 +24,7 @@ function submission(overrides = {}) {
     startedAt: '2026-10-25T10:00:00.000Z',
     finishedAt: '2026-10-25T10:00:04.500Z',
     steps: GOOD_STEPS,
-    teardown: [{ reply: 'OK' }, { reply: 'OK' }],
+    teardown: [{ reply: 'OK' }, { reply: 'OK' }, { reply: 'PWR=0 LED=0 WDT=0' }],
     ...overrides,
   };
 }

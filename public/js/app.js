@@ -7,6 +7,7 @@ import { WebSerialTransport, ServerTransport, DemoTransport } from './transports
 import { initProduction } from './production-ui.js';
 import { FAULTS } from './simulator.js';
 import { replyText } from './recipe.js';
+import { CommandChannel } from './channel.js';
 
 const MAX_RAW_LINES = 500;
 const MAX_HISTORY_ROWS = 10000;
@@ -63,6 +64,8 @@ const state = {
   history: [],
   lineCount: 0,
   autoSendTimer: null,
+  channel: null, // CommandChannel of the open connection (ids, queue, test lock)
+  testActive: false,
 };
 
 // Shared time series used by every chart panel
@@ -124,7 +127,7 @@ function setMode(mode) {
 function updateModeAvailability() {
   document.querySelectorAll('#mode-selector .seg-item').forEach((btn) => {
     const mode = btn.dataset.mode;
-    btn.disabled = !state.available[mode] || state.connected || state.connecting;
+    btn.disabled = !state.available[mode] || state.connected || state.connecting || state.testActive;
   });
 }
 
@@ -186,6 +189,16 @@ function handleStatus({ connected, label, error }) {
   state.connected = connected;
   state.connecting = false;
   state.statusLabel = label;
+  if (connected && !state.channel) {
+    // Every write (monitor, auto-send, test station) goes through one queue per port
+    state.channel = new CommandChannel({
+      write: (line, options) => state.transport.send(line, options),
+      isConnected: () => state.connected,
+    });
+  } else if (!connected && state.channel) {
+    state.channel.close();
+    state.channel = null;
+  }
   if (!connected) stopAutoSend();
   renderConnection();
   statusListeners.forEach((fn) => fn({ connected, label, error }));
@@ -205,7 +218,11 @@ function renderConnection() {
   status.title = state.statusLabel || '';
 
   const button = $('connection-button');
-  button.disabled = state.connecting;
+  // A running test owns the port: no disconnect, mode change or manual commands meanwhile
+  button.disabled = state.connecting || state.testActive;
+  button.title = state.testActive ? 'Test çalışırken bağlantı değiştirilemez' : '';
+  for (const id of ['send-input', 'auto-send-checkbox', 'baud-select']) $(id).disabled = state.testActive;
+  document.querySelector('#send-form [type=submit]').disabled = state.testActive;
   button.classList.toggle('connected', state.connected);
   button.textContent = state.connecting
     ? 'Bağlanıyor…'
@@ -278,6 +295,7 @@ async function loadPorts() {
 
 // ---------- incoming data ----------
 function handleLine(line) {
+  state.channel?.handleLine(line);
   const row = {
     time: new Date().toISOString(),
     raw: line,
@@ -547,15 +565,16 @@ function readLabels() {
 
 // ---------- sending ----------
 async function sendText(text) {
-  if (!state.connected) {
+  if (!state.connected || !state.channel) {
     showToast('Önce bağlantı kurun');
     return false;
   }
   try {
-    await state.transport.send(text);
+    await state.channel.sendRaw(text, 'monitor');
     return true;
   } catch (err) {
-    showToast(`Gönderilemedi: ${err.message}`);
+    showToast(err.code === 'LOCKED' ? err.message : `Gönderilemedi: ${err.message}`);
+    if (err.code === 'LOCKED') stopAutoSend();
     return false;
   }
 }
@@ -754,7 +773,27 @@ async function init() {
       lineListeners.add(fn);
       return () => lineListeners.delete(fn);
     },
-    send: (text) => (state.connected ? state.transport.send(text) : Promise.reject(new Error('Bağlantı yok'))),
+    getChannel: () => state.channel,
+    // Locks the port for a test: locally (command channel) and, with the Node bridge, on the server
+    lockPort: async (owner) => {
+      state.channel.lock(owner);
+      try {
+        await state.transport.lock?.(owner);
+      } catch (err) {
+        state.channel.unlock(owner);
+        throw err;
+      }
+    },
+    unlockPort: async (owner) => {
+      state.channel?.unlock(owner);
+      await state.transport?.unlock?.(owner);
+    },
+    getTransportKind: () => (state.connected ? state.mode : null),
+    setTestActive: (active) => {
+      state.testActive = active;
+      if (active) stopAutoSend();
+      renderConnection();
+    },
     onStatus: (fn) => statusListeners.add(fn),
     getConnection: () => ({ connected: state.connected, label: state.statusLabel }),
     showToast,

@@ -100,7 +100,9 @@ export function renderCommand(template, context) {
 
 /** True for protocol reply lines; returns the reply text without the prefix. */
 export function replyText(line) {
-  return typeof line === 'string' && line.startsWith(REPLY_PREFIX) ? line.slice(REPLY_PREFIX.length).trim() : null;
+  if (typeof line !== 'string' || !line.startsWith(REPLY_PREFIX)) return null;
+  // Numbered replies (protocol v2) look like "@#00A1 OK"; return only the body
+  return line.slice(REPLY_PREFIX.length).replace(/^#[0-9A-Z]{1,8} ?/, '').trim();
 }
 
 // ---------- limits ----------
@@ -194,6 +196,14 @@ function validateStep(raw, where, allowedTypes, errors) {
 
   if (type === 'command') {
     step.expect = validateCommandText(raw.expect ?? 'OK', `${where}: expect`, errors);
+    if (raw.capture !== undefined) {
+      step.capture = String(raw.capture);
+      if (!/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/.test(step.capture)) errors.push(`${where}: capture bir alan adı olmalı (ör. "firmware")`);
+    }
+    if (raw.critical !== undefined) {
+      if (typeof raw.critical !== 'boolean') errors.push(`${where}: critical true veya false olmalı`);
+      step.critical = raw.critical === true;
+    }
   } else {
     step.samples = num('samples', 1, 1, 100);
     step.intervalMs = num('intervalMs', 0, 0, 10000, ' ms');
@@ -228,6 +238,13 @@ export function validateProduct(input) {
   const maxAttempts = intInRange(input?.maxAttempts, 3, 1, 10);
   if (Number.isNaN(maxAttempts)) errors.push('maxAttempts 1–10 arasında olmalı');
 
+  // Legacy firmware without request ids must be chosen explicitly, never assumed
+  const protocol = input?.protocol ?? 'v2';
+  if (!['v2', 'v1'].includes(protocol)) errors.push('protocol "v2" (istek kimlikli) veya "v1" (eski firmware) olmalı');
+  const heartbeatMs = intInRange(input?.heartbeatMs, protocol === 'v2' ? 1000 : 0, 0, 10000);
+  if (Number.isNaN(heartbeatMs)) errors.push('heartbeatMs 0–10000 arasında tam sayı olmalı');
+  else if (protocol === 'v1' && heartbeatMs > 0) errors.push('heartbeat yalnızca protokol v2 ile kullanılabilir');
+
   const recipeIn = input?.recipe ?? {};
   const stepsIn = Array.isArray(recipeIn.steps) ? recipeIn.steps : null;
   const teardownIn = recipeIn.teardown === undefined ? [] : recipeIn.teardown;
@@ -239,6 +256,7 @@ export function validateProduct(input) {
   }
 
   const steps = (stepsIn ?? []).slice(0, 50).map((s, i) => validateStep(s, `Adım ${i + 1}`, STEP_TYPES, errors));
+  steps.forEach((s, i) => s.critical && errors.push(`Adım ${i + 1}: critical yalnızca teardown adımlarında kullanılır`));
   const teardown = (Array.isArray(teardownIn) ? teardownIn : [])
     .slice(0, 10)
     .map((s, i) => validateStep(s, `Teardown ${i + 1}`, TEARDOWN_TYPES, errors));
@@ -249,6 +267,8 @@ export function validateProduct(input) {
       name,
       serialMask,
       maxAttempts,
+      protocol,
+      heartbeatMs,
       recipe: { stopOnFail: recipeIn.stopOnFail ?? true, steps, teardown },
     },
     errors,
@@ -393,6 +413,8 @@ export function evaluateStep(step, data) {
     case 'delay':
       return { status: 'PASS', reason: null };
     case 'command':
+      // The runner records why a command could not be sent at all (e.g. the port is gone)
+      if (data.error && (data.reply === null || data.reply === undefined)) return { status: 'ERROR', reason: data.error };
       return checkReply(data.reply ?? null, step.expect, data.attempts ?? 1);
     case 'measure':
       return evaluateMeasure(step, data);
@@ -454,7 +476,29 @@ export function evaluateRun(recipe, stepsData = [], teardownData = [], { error =
   }
 
   const measurements = steps.flatMap((s) => (s.measurements ?? []).map((m) => ({ step: s.index, ...m })));
-  return { result, reason, failedStep, steps, teardown, measurements };
+  const captures = {};
+  for (const s of steps) if (s.capture && s.status === 'PASS' && s.data?.reply) captures[s.capture] = s.data.reply;
+  return { result, reason, failedStep, steps, teardown, measurements, captures, safety: evaluateSafety(teardown) };
+}
+
+/**
+ * Whether the station could confirm the board was left in a safe state.
+ * Kept apart from the verdict: a board can PASS while the station failed to switch it off.
+ *   SAFE        every critical teardown step passed
+ *   UNSAFE      a critical step got a wrong reply or a device error
+ *   UNVERIFIED  a critical step got no reply or could not be sent
+ *   NOT_CHECKED the recipe has no critical teardown step
+ */
+export function evaluateSafety(teardown) {
+  const critical = teardown.filter((s) => s.critical);
+  if (!critical.length) return { state: 'NOT_CHECKED', reason: 'Reçetede kritik kapatma adımı yok' };
+  const unsafe = critical.find((s) => s.status === 'FAIL');
+  if (unsafe) return { state: 'UNSAFE', reason: `${unsafe.name}: ${unsafe.reason}` };
+  const unverified = critical.find((s) => s.status !== 'PASS');
+  if (unverified) {
+    return { state: 'UNVERIFIED', reason: `${unverified.name}: ${unverified.reason ?? 'çalıştırılamadı'}` };
+  }
+  return { state: 'SAFE', reason: null };
 }
 
 // ---------- default products ----------
@@ -470,7 +514,7 @@ export const DEFAULT_PRODUCTS = [
       stopOnFail: true,
       steps: [
         { type: 'command', name: 'Seri numarasını yaz', send: 'SN {serial}', expect: 'OK' },
-        { type: 'command', name: 'Kimlik ve firmware', send: 'ID?', expect: 'ID SVB-100 FW1.4.*', retries: 1 },
+        { type: 'command', name: 'Kimlik ve firmware', send: 'ID?', expect: 'ID SVB-100 FW1.4.*', retries: 1, capture: 'firmware' },
         { type: 'command', name: 'Beslemeyi aç', send: 'PWR ON', expect: 'OK' },
         { type: 'delay', name: 'Oturma süresi', ms: 300 },
         {
@@ -491,7 +535,8 @@ export const DEFAULT_PRODUCTS = [
       ],
       teardown: [
         { type: 'command', name: 'LED kapat', send: 'LED OFF', expect: 'OK' },
-        { type: 'command', name: 'Beslemeyi kapat', send: 'PWR OFF', expect: 'OK' },
+        { type: 'command', name: 'Beslemeyi kapat', send: 'PWR OFF', expect: 'OK', retries: 2, critical: true },
+        { type: 'command', name: 'Kapalı olduğunu doğrula', send: 'STATUS?', expect: 'PWR=0 *', retries: 2, critical: true },
       ],
     },
   },
@@ -504,7 +549,7 @@ export const DEFAULT_PRODUCTS = [
       stopOnFail: true,
       steps: [
         { type: 'command', name: 'Seri numarasını yaz', send: 'SN {serial}', expect: 'OK' },
-        { type: 'command', name: 'Kimlik ve firmware', send: 'ID?', expect: 'ID SVB-200 FW2.*', retries: 1 },
+        { type: 'command', name: 'Kimlik ve firmware', send: 'ID?', expect: 'ID SVB-200 FW2.*', retries: 1, capture: 'firmware' },
         { type: 'command', name: 'Beslemeyi aç', send: 'PWR ON', expect: 'OK' },
         { type: 'delay', name: 'Oturma süresi', ms: 500 },
         {
@@ -522,7 +567,10 @@ export const DEFAULT_PRODUCTS = [
           ],
         },
       ],
-      teardown: [{ type: 'command', name: 'Beslemeyi kapat', send: 'PWR OFF', expect: 'OK' }],
+      teardown: [
+        { type: 'command', name: 'Beslemeyi kapat', send: 'PWR OFF', expect: 'OK', retries: 2, critical: true },
+        { type: 'command', name: 'Kapalı olduğunu doğrula', send: 'STATUS?', expect: 'PWR=0 *', retries: 2, critical: true },
+      ],
     },
   },
 ];

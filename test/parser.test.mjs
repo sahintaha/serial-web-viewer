@@ -90,9 +90,13 @@ test('line splitter handles chunk boundaries and CRLF', () => {
   assert.deepEqual(splitter.flush(), ['tail']);
 });
 
-test('line splitter flushes overly long lines without a newline', () => {
+test('line splitter drops a line that grows past the limit and counts it', () => {
   const splitter = createLineSplitter(10);
-  assert.deepEqual(splitter.push('x'.repeat(15)), ['x'.repeat(15)]);
+  assert.deepEqual(splitter.push('x'.repeat(15)), []);
+  assert.deepEqual(splitter.push('yyy\nA1\n'), ['A1'], 'the rest of the overlong line is dropped too');
+  assert.equal(splitter.overflows, 1);
+  for (let i = 0; i < 100; i += 1) splitter.push('z'.repeat(50)); // a device that never sends a newline
+  assert.equal(splitter.flush().length, 0);
 });
 
 test('rowsToCsv builds a column per label and escapes cells', () => {

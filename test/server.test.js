@@ -49,7 +49,7 @@ function run(serial, steps = GOOD_STEPS, extra = {}) {
     startedAt: new Date(Date.now() - 4000).toISOString(),
     finishedAt: new Date().toISOString(),
     steps,
-    teardown: [{ reply: 'OK' }, { reply: 'OK' }],
+    teardown: [{ reply: 'OK' }, { reply: 'OK' }, { reply: 'PWR=0 LED=0 WDT=0' }],
     log: [{ t: 0, dir: 'TX', text: `SN ${serial}` }, { t: 30, dir: 'RX', text: 'OK' }],
     ...extra,
   };

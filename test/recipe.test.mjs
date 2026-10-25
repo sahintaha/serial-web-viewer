@@ -147,11 +147,16 @@ const GOOD_RUN = [
 ];
 
 test('evaluateRun: PASS, FAIL with skipped steps, ERROR', () => {
-  const pass = evaluateRun(SENSOR.recipe, GOOD_RUN, [{ reply: 'OK' }, { reply: 'OK' }]);
+  const pass = evaluateRun(SENSOR.recipe, GOOD_RUN, [{ reply: 'OK' }, { reply: 'OK' }, { reply: 'PWR=0 LED=0 WDT=0' }]);
   assert.equal(pass.result, 'PASS');
   assert.equal(pass.measurements.length, 2);
   assert.equal(pass.measurements[0].step, 4);
-  assert.deepEqual(pass.teardown.map((s) => s.status), ['PASS', 'PASS']);
+  assert.deepEqual(pass.teardown.map((s) => s.status), ['PASS', 'PASS', 'PASS']);
+  assert.equal(pass.safety.state, 'SAFE');
+  // Teardown not executed → the verdict stays, but safety is not verified
+  const noTeardown = evaluateRun(SENSOR.recipe, GOOD_RUN, []);
+  assert.equal(noTeardown.result, 'PASS');
+  assert.equal(noTeardown.safety.state, 'UNVERIFIED');
 
   const fail = evaluateRun(SENSOR.recipe, [...GOOD_RUN.slice(0, 5), { reply: 'ERR SENSOR_FAULT' }]);
   assert.equal(fail.result, 'FAIL');

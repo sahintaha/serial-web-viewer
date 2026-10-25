@@ -88,27 +88,38 @@ export function parseLine(line, labels = []) {
 
 /**
  * Splits a stream of text chunks into complete lines (handles "\n" and "\r\n").
- * Incomplete trailing text is buffered until the next chunk.
+ * Incomplete trailing text is buffered until the next chunk. A line that grows past
+ * maxLineLength without a newline is discarded up to the next newline and counted
+ * (`overflows`), so a device that never sends a line ending cannot grow memory without bound.
  */
 export function createLineSplitter(maxLineLength = 4096) {
   let buffer = '';
-  return {
+  let discarding = false;
+  const splitter = {
+    overflows: 0,
     push(chunk) {
       buffer += chunk;
       const parts = buffer.split(/\r?\n/);
       buffer = parts.pop();
+      if (discarding && parts.length) {
+        parts.shift(); // the tail of the overlong line
+        discarding = false;
+      }
       if (buffer.length > maxLineLength) {
-        parts.push(buffer);
         buffer = '';
+        discarding = true;
+        splitter.overflows += 1;
       }
       return parts.map((l) => l.replace(/\r$/, '')).filter(Boolean);
     },
     flush() {
-      const rest = buffer;
+      const rest = discarding ? '' : buffer;
       buffer = '';
+      discarding = false;
       return rest ? [rest] : [];
     },
   };
+  return splitter;
 }
 
 export function csvCell(value) {

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "serial-web-viewer",
   "version": "2.0.0",
   "description": "Real-time serial port monitor for Arduino and embedded devices — runs in the browser (Web Serial API) or with a Node.js bridge",
@@ -39,6 +39,7 @@
     "@eslint/js": "^9.17.0",
     "eslint": "^9.17.0",
     "globals": "^15.14.0",
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "socket.io-client": "^4.8.4"
   }
 }

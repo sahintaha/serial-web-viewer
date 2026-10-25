@@ -11,7 +11,6 @@ import {
   normalizeSerial,
   evaluateRun,
   renderCommand,
-  replyText,
   formatValue,
   EVALUATION_MODES,
 } from './recipe.js';
@@ -200,32 +199,23 @@ export function initProduction(app) {
     });
   }
 
-  // ---------- device io for the runner ----------
-  const io = {
-    request(command, timeoutMs, signal) {
-      return new Promise((resolve, reject) => {
-        if (signal?.aborted) return reject(abortError(signal.reason));
-        let unsubscribe = () => {};
-        const timer = setTimeout(() => done(resolve, null), timeoutMs);
-        const onAbort = () => done(reject, abortError(signal.reason));
-        function done(fn, value) {
-          clearTimeout(timer);
-          unsubscribe();
-          signal?.removeEventListener('abort', onAbort);
-          fn(value);
-        }
-        // Listen before sending so a fast reply cannot be missed
-        unsubscribe = app.onLine((row) => {
-          const reply = replyText(row.raw);
-          if (reply !== null) done(resolve, reply);
-        });
-        signal?.addEventListener('abort', onAbort, { once: true });
-        app.send(command).catch((err) => done(reject, abortError(`Gönderilemedi: ${err.message}`)));
-      });
-    },
-    confirm: (step, signal) => ask(step.prompt, signal),
-    sleep,
-  };
+  // ---------- device io for the runner (through the port's command channel) ----------
+  function channelFor(owner, testedProduct) {
+    const channel = () => {
+      const c = app.getChannel();
+      if (!c) throw Object.assign(new Error('Bağlantı yok'), { code: 'NOT_CONNECTED' });
+      return c;
+    };
+    return {
+      request: (command, { timeoutMs, signal, id }) =>
+        channel().request(command, { timeoutMs, signal, id, owner, protocol: testedProduct.protocol }).then((r) => r.reply),
+      newId: () => (testedProduct.protocol === 'v2' ? channel().newId() : null),
+      confirm: (step, signal) => ask(step.prompt, signal),
+      sleep,
+      startHeartbeat: (o) => channel().startHeartbeat({ ...o, owner }),
+      stopHeartbeat: () => app.getChannel()?.stopHeartbeat(owner),
+    };
+  }
 
   // ---------- station ----------
   function idleSteps() {
@@ -329,6 +319,14 @@ export function initProduction(app) {
     app.storage.set('productionOperator', $('pt-operator').value.trim());
     const testedProduct = product;
     const controller = new AbortController();
+    const owner = `run-${Date.now().toString(36)}`;
+    try {
+      await app.lockPort(owner);
+    } catch (err) {
+      app.showToast(err.message);
+      return;
+    }
+    app.setTestActive(true);
     run = { serial, controller, view: idleSteps() };
     last = null;
     logEntries = [];
@@ -340,7 +338,7 @@ export function initProduction(app) {
       raw = await runTest({
         product: testedProduct,
         serial,
-        io,
+        io: channelFor(owner, testedProduct),
         signal: controller.signal,
         onProgress(event) {
           if (event.type === 'log') {
@@ -354,12 +352,16 @@ export function initProduction(app) {
         },
       });
     } catch (err) {
+      await app.unlockPort(owner);
+      app.setTestActive(false);
       run = null;
       renderStation();
       app.showToast(`Test çalıştırılamadı: ${err.message}`);
       return;
     }
 
+    await app.unlockPort(owner);
+    app.setTestActive(false);
     const verdict = evaluateRun(testedProduct.recipe, raw.steps, raw.teardown, { error: raw.error });
     run = null;
     last = { serial, ...verdict };
