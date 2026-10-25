@@ -1,303 +1,132 @@
 # 🔌 Serial Web Viewer
 
-<div align="center">
+[![CI](https://github.com/sahintaha/serial-web-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/sahintaha/serial-web-viewer/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/demo-live-3b82f6)](https://sahintaha.github.io/serial-web-viewer/?demo)
+![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)
-![Express](https://img.shields.io/badge/Express-4.x-000000?style=for-the-badge&logo=express&logoColor=white)
-![Socket.io](https://img.shields.io/badge/Socket.io-4.x-010101?style=for-the-badge&logo=socket.io&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+**Arduino ve gömülü cihazlar için gerçek zamanlı seri port monitörü.** Kurulum gerektirmeden tarayıcıda çalışır (Web Serial API). İsterseniz Node.js köprüsüyle de kullanabilirsiniz.
 
-**Modern, real-time serial port monitor for Arduino and embedded devices**
+### 👉 [Canlı demo: sahintaha.github.io/serial-web-viewer](https://sahintaha.github.io/serial-web-viewer/?demo)
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [API](#-api) • [Contributing](#-contributing)
+Donanımınız yoksa demo sahte sensör verisiyle açılır. Arduino'nuzu USB ile takıp **Tarayıcı** modunda **Bağlan**'a basarsanız gerçek veriniz görünür (Chrome / Edge).
 
-</div>
-
----
-
-## 📸 Screenshots
-
-<div align="center">
-<table>
-<tr>
-<td align="center"><strong>Light Theme</strong></td>
-<td align="center"><strong>Dark Theme</strong></td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/light-theme.png" alt="Light Theme" width="400"/></td>
-<td><img src="docs/screenshots/dark-theme.png" alt="Dark Theme" width="400"/></td>
-</tr>
-</table>
-</div>
+| Açık tema | Koyu tema |
+|:---:|:---:|
+| <img src="docs/screenshots/light-theme.png" alt="Açık tema" width="420"> | <img src="docs/screenshots/dark-theme.png" alt="Koyu tema" width="420"> |
 
 ---
 
-## ✨ Features
+## ✨ Özellikler
 
-### Core Features
-- 🔄 **Real-time Data Streaming** — View serial port data instantly via WebSocket
-- 📊 **Live Charts** — Beautiful, animated charts with Chart.js
-- 🏷️ **Custom Data Labels** — Map prefixes to meaningful names (A → Temperature, B → Humidity)
-- 🌓 **Dark/Light Theme** — Eye-friendly themes with smooth transitions
-- 📱 **Responsive Design** — Works on desktop, tablet, and mobile
+- **3 bağlantı modu**
+  - **Tarayıcı**: Web Serial API ile USB porta doğrudan bağlanır. Sunucu ve kurulum gerekmez.
+  - **Sunucu**: Node.js + Socket.io köprüsü. Ayrı alıcı/verici port kullanılabilir ve birden fazla sekme aynı bağlantıyı paylaşır.
+  - **Demo**: donanım olmadan sahte sensör verisi üretir.
+- **Format algılama**: `A25.5,B60`, `temp:25;hum=60`, `{"temp":25}` ve düz `25,60` biçimlerini otomatik tanır.
+- **Etiketleme**: anahtarları anlamlı adlara eşler (`A` → Sıcaklık). Tanımlanmamış alanlar da gösterilir.
+- **Canlı grafik**: Chart.js ile son 100 ölçümü çizer. Eksik değerler boşluk olarak kalır, zaman ekseni kaymaz.
+- **CSV dışa aktarma**: kaydedilen tüm satırları (en fazla 10.000) Excel'de açılabilen bir CSV olarak indirir.
+- **Komut gönderme**: tek seferlik ya da belirli aralıklarla tekrarlanan komutlar gönderilebilir.
+- **Ayarlanabilir panel düzeni**: paneller sürükle-bırak ile sıralanır, eklenip silinebilir. Düzen, etiketler, tema ve baud rate hatırlanır.
+- **Performans**: gelen satırlar her animation frame'de toplu olarak çizilir ve ham log 500 satırla sınırlıdır; hızlı cihazlarda bile sayfa donmaz.
+- **Güvenlik**: cihazdan gelen veri her zaman `textContent` ile basılır (XSS yok). Sunucu varsayılan olarak yalnızca `127.0.0.1` adresini dinler, girdiler doğrulanır.
 
-### Advanced Features
-- 🔀 **Dual Port Support** — Separate receiver and transmitter ports
-- 📤 **Manual & Auto Send** — Send data manually or at custom intervals
-- 🧪 **Test Mode** — Simulate data without Arduino for development
-- 🎯 **Drag & Drop Panels** — Customize your dashboard layout
-- 💾 **Persistent Settings** — Theme and layout saved to localStorage
+## 🏗️ Mimari
 
----
+```
+                     ┌─────────── public/js ───────────┐
+ USB ── Web Serial ─▶│ WebSerialTransport ┐            │
+                     │ DemoTransport ─────┼─▶ parser ─▶│─▶ Panels (log, chips, chart, CSV)
+ USB ── server.js ──▶│ ServerTransport ───┘  (pure)    │
+       (Socket.io)   └─────────────────────────────────┘
+```
 
-## 🛠️ Tech Stack
+| Dosya | Görev |
+|---|---|
+| `public/js/parser.js` | Satır ayrıştırma, satır bölme ve CSV üretimi. DOM'a dokunmayan saf fonksiyonlardır ve birim testleri vardır. |
+| `public/js/transports.js` | Ortak arayüze sahip üç veri kaynağı: Web Serial, Socket.io ve Demo |
+| `public/js/app.js` | Arayüz durumu, paneller ve grafik |
+| `server.js` | Express + Socket.io köprüsü (`/health`, `/ports`) |
 
-| Category | Technology |
-|----------|------------|
-| **Runtime** | Node.js 18+ |
-| **Backend** | Express.js, Socket.io |
-| **Serial Communication** | serialport, @serialport/parser-readline |
-| **Frontend** | Vanilla JavaScript (ES6+) |
-| **Charts** | Chart.js |
-| **Drag & Drop** | Sortable.js |
-| **Styling** | Modern CSS (Variables, Flexbox, Grid) |
+Frontend'de bundler veya framework yok; doğrudan tarayıcıda çalışan ES modülleri kullanılıyor. Bu sayede GitHub Pages'e olduğu gibi yüklenebiliyor.
 
----
+## 🚀 Kurulum
 
-## 📦 Installation
+### Sadece tarayıcı
+[Canlı demoyu](https://sahintaha.github.io/serial-web-viewer/) açın, **Tarayıcı** modunu seçip **Bağlan**'a basın. Chrome veya Edge gerekir.
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) v18 or higher
-- npm or yarn
-- Arduino or any serial device (optional for test mode)
-
-### Quick Start
+### Node.js köprüsü ile
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/serial-web-viewer.git
-
-# Navigate to project directory
+git clone https://github.com/sahintaha/serial-web-viewer.git
 cd serial-web-viewer
-
-# Install dependencies
 npm install
-
-# Start the server
 npm start
 ```
 
-The application will be available at `http://localhost:3000`
+Ardından `http://localhost:3000` adresini açın. Ayarlar için `.env.example` dosyasını `.env` olarak kopyalayın:
 
-### Development Mode
+| Değişken | Varsayılan | Açıklama |
+|---|---|---|
+| `PORT` | `3000` | Web arayüzünün HTTP portu |
+| `HOST` | `127.0.0.1` | Dinlenecek arayüz. `0.0.0.0` yaparsanız ağdaki herkes cihazınıza yazabilir. |
+| `BAUD_RATE` | `9600` | Varsayılan baud rate (arayüzden de değiştirilebilir) |
 
-```bash
-# Run with auto-reload (nodemon)
-npm run dev
-```
-
----
-
-## 🚀 Usage
-
-### 1. Connect Your Device
-
-1. Connect your Arduino or serial device to your computer
-2. Open `http://localhost:3000` in your browser
-3. Select the **Receiver Port** from the dropdown
-4. (Optional) Select a **Transmitter Port** for bidirectional communication
-5. Click **Connect**
-
-### 2. Configure Data Labels
-
-Map your data prefixes to meaningful labels:
-
-| Prefix | Label | Example Data |
-|--------|-------|--------------|
-| A | Temperature | A25.5 → Temperature: 25.5 |
-| B | Humidity | B60 → Humidity: 60 |
-| C | Pressure | C1013 → Pressure: 1013 |
-| D | Light | D500 → Light: 500 |
-
-### 3. Arduino Example Code
-
-```cpp
-void setup() {
-  Serial.begin(9600);
-}
-
-void loop() {
-  float temperature = analogRead(A0) * 0.48828125;
-  int humidity = analogRead(A1) / 10;
-  int pressure = 1000 + random(30);
-  int light = analogRead(A2);
-  
-  // Format: A<temp>,B<humidity>,C<pressure>,D<light>
-  Serial.print("A");
-  Serial.print(temperature, 1);
-  Serial.print(",B");
-  Serial.print(humidity);
-  Serial.print(",C");
-  Serial.print(pressure);
-  Serial.print(",D");
-  Serial.println(light);
-  
-  delay(1000);
-}
-```
-
-### 4. Test Mode
-
-Don't have an Arduino? No problem! Click **Test Mode** to simulate sensor data.
-
----
-
-## 📡 API
-
-### REST Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/ports` | List available serial ports |
-
-### WebSocket Events
-
-#### Client → Server
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `select-ports` | `{ receiverPath, transmitterPath }` | Connect to serial ports |
-| `disconnect-ports` | - | Disconnect from ports |
-| `send-manual` | `string` | Send data to transmitter port |
-| `start-auto-send` | `message, interval` | Start auto-send loop |
-| `stop-auto-send` | - | Stop auto-send loop |
-
-#### Server → Client
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `serial-data` | `string` | Incoming serial data |
-| `connection-status` | `{ connected, error? }` | Connection state change |
-
----
-
-## 📁 Project Structure
-
-```
-serial-web-viewer/
-├── public/
-│   ├── index.html      # Main HTML file
-│   ├── script.js       # Frontend JavaScript
-│   └── styles.css      # Styling
-├── server.js           # Express + Socket.io server
-├── package.json        # Dependencies & scripts
-└── README.md           # Documentation
-```
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-Create a `.env` file in the root directory:
-
-```env
-PORT=3000
-BAUD_RATE=9600
-```
-
-### Baud Rate
-
-Default baud rate is `9600`. To change it, modify `server.js`:
-
-```javascript
-receiverPort = new SerialPort({ 
-  path: receiverPath, 
-  baudRate: 115200  // Change this value
-});
-```
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Follow existing code style
-- Add comments for complex logic
-- Test with real hardware when possible
-- Update documentation for new features
-
----
-
-## 📋 Roadmap
-
-- [ ] TypeScript migration
-- [ ] Docker support
-- [ ] Data export (CSV, JSON)
-- [ ] Alert/notification system
-- [ ] Multiple chart types
-- [ ] Data logging to file
-- [ ] Electron desktop app
-- [ ] Mobile app (React Native)
-
----
-
-## 🐛 Troubleshooting
-
-### Port not showing in list
-
-- **Linux:** Add user to `dialout` group: `sudo usermod -a -G dialout $USER`
-- **macOS:** Install CH340 drivers if using cheap Arduino clones
-- **Windows:** Install appropriate USB-to-Serial drivers
-
-### Permission denied error
+### Docker
 
 ```bash
-# Linux
-sudo chmod 666 /dev/ttyUSB0
-
-# Or add udev rule for permanent fix
-echo 'SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0666"' | sudo tee /etc/udev/rules.d/99-serial.rules
+docker compose up -d
 ```
 
-### Data not displaying
+Seri cihazı container'a vermek için `docker-compose.yml` içindeki `devices` bölümünü açın.
 
-- Verify baud rate matches your Arduino code
-- Check if data format matches label configuration
-- Use Test Mode to verify frontend is working
+## 🔧 Arduino örneği
 
----
+[`examples/arduino/sensor_stream`](examples/arduino/sensor_stream/sensor_stream.ino) her saniye `A<sıcaklık>,B<nem>,C<pot>,D<ışık>` satırını yollar ve arayüzden gelen `LED:ON`, `LED:OFF`, `RATE:500` komutlarına `ACK:` ile yanıt verir.
 
-## 📄 License
+## 📡 Socket.io API (Sunucu modu)
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+| Yön | Olay | Veri |
+|---|---|---|
+| İstemci → Sunucu | `select-ports` | `{ receiverPath, transmitterPath?, baudRate }` |
+| İstemci → Sunucu | `disconnect-ports` | — |
+| İstemci → Sunucu | `send-manual` | `string` (en fazla 1024 karakter) |
+| Sunucu → İstemci | `serial-data` | `string` (tek satır) |
+| Sunucu → İstemci | `connection-status` | `{ connected, receiverPath, transmitterPath, baudRate, error? }` |
+| Sunucu → İstemci | `send-error` | `string` |
 
----
+REST uçları: `GET /ports` port listesini, `GET /health` ise `{ status, connected }` döndürür.
 
-## 🙏 Acknowledgments
+## 🧪 Geliştirme
 
-- [serialport](https://serialport.io/) - Serial port access for Node.js
-- [Socket.io](https://socket.io/) - Real-time bidirectional communication
-- [Chart.js](https://www.chartjs.org/) - Beautiful charts
-- [Sortable.js](https://sortablejs.github.io/Sortable/) - Drag & drop functionality
+```bash
+npm run dev    # nodemon ile otomatik yeniden başlatma
+npm test       # node:test — parser + sunucu testleri
+npm run lint   # ESLint
+```
 
----
+Her push'ta GitHub Actions, Node 20 ve 22 üzerinde lint ve testleri çalıştırır. `main` dalına gelen değişiklikler `public/` klasörünü otomatik olarak GitHub Pages'e yayınlar.
 
-<div align="center">
+## 📋 Yol haritası
 
-**Made with ❤️ for the maker community**
+- [x] Web Serial API ile sunucusuz mod ve canlı demo
+- [x] CSV dışa aktarma
+- [x] Docker desteği
+- [x] Birim testleri ve CI
+- [ ] HEX / binary görünüm
+- [ ] Eşik alarmları ve gauge widget'ları
+- [ ] Oturum kaydı ve tekrar oynatma
+- [ ] MQTT köprüsü
+- [ ] TypeScript'e geçiş
 
-⭐ Star this repo if you find it useful!
+## 🐛 Sorun giderme
 
-</div>
+- **Tarayıcı modu pasif**: Firefox ve Safari Web Serial desteklemiyor. Chrome veya Edge kullanın ya da Sunucu modunu deneyin.
+- **Port listede yok (Linux)**: `sudo usermod -a -G dialout $USER` komutunu çalıştırıp oturumu yeniden açın.
+- **Clone Arduino (CH340)**: ilgili USB-serial sürücüsünü kurun.
+- **Veri anlamsız karakterler**: baud rate'in Arduino kodundaki `Serial.begin(...)` değeriyle aynı olduğundan emin olun.
+
+## 📄 Lisans
+
+[MIT](LICENSE) © Taha Şahin

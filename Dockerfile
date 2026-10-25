@@ -1,29 +1,27 @@
-# Serial Web Viewer - Dockerfile
-# Note: Serial port access requires --privileged flag or device mapping
+# Serial Web Viewer
+# Serial access needs device mapping, e.g. --device /dev/ttyUSB0 (see docker-compose.yml)
 
-FROM node:18-alpine
+FROM node:22-alpine
 
-# Install build dependencies for serialport
+# Build tools in case serialport has no prebuilt binary for this platform
 RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Install dependencies
-RUN npm ci --only=production
+COPY server.js ./
+COPY public ./public
 
-# Copy application files
-COPY . .
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=3000
 
-# Expose port
 EXPOSE 3000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
+  CMD wget -q --spider http://localhost:3000/health || exit 1
 
-# Start the application
+USER node
 CMD ["node", "server.js"]
-

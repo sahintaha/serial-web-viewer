@@ -54,12 +54,16 @@ npm install
 # Start development server
 npm run dev
 
+# Run tests and lint before opening a PR
+npm test
+npm run lint
+
 # The app will be available at http://localhost:3000
 ```
 
 ### Testing Without Hardware
 
-Use the built-in **Test Mode** to simulate serial data without an Arduino.
+Pick **Demo** mode (or open `http://localhost:3000/?demo`) to simulate serial data without an Arduino.
 
 ## 🔄 Pull Request Process
 
@@ -149,7 +153,7 @@ const calc = (v) => v * 0.48828125;
 
 We especially welcome contributions in these areas:
 
-- [ ] Unit tests
+- [ ] More tests (transports, UI)
 - [ ] TypeScript migration
 - [ ] Accessibility improvements
 - [ ] Performance optimizations
