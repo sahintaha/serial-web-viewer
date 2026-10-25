@@ -66,7 +66,7 @@
           <div class="seg" id="mode-selector" role="radiogroup" aria-label="Bağlantı modu">
             <button type="button" class="seg-item" data-mode="webserial" role="radio" title="Tarayıcıdan doğrudan USB seri porta bağlan (Chrome / Edge)">Tarayıcı</button>
             <button type="button" class="seg-item" data-mode="server" role="radio" title="Node.js sunucusu üzerinden bağlan (npm start)">Sunucu</button>
-            <button type="button" class="seg-item" data-mode="demo" role="radio" title="Donanım olmadan örnek veri">Demo</button>
+            <button type="button" class="seg-item" data-mode="demo" role="radio" title="Donanım olmadan, komutlara cevap veren sanal kart">Simülatör</button>
           </div>
           <p class="hint" id="mode-hint"></p>
 
@@ -102,6 +102,22 @@
         </div>
       </section>
 
+      <section class="panel hidden" id="sim-panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>Simüle edilen kart</h2>
+            <span class="panel-sub">Fikstür firmware'iyle aynı protokol</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="field">
+            <label class="label" for="sim-fault">Arıza</label>
+            <select id="sim-fault" class="select"></select>
+          </div>
+          <dl class="sim-state" id="sim-state"></dl>
+        </div>
+      </section>
+
       <section class="panel monitor-only">
         <div class="panel-head"><h2>Etiketler</h2></div>
         <div class="panel-body">
@@ -134,103 +150,218 @@
 
     <!-- Production test (js/production-ui.js) -->
     <main class="production hidden" id="production-view">
-      <section class="panel">
-        <div class="panel-head">
-          <div class="panel-title">
-            <h2>Üretim Testi</h2>
-            <span class="panel-sub">Seri numarası, ölçüm, limit kontrolü, karar ve kayıt</span>
-          </div>
-          <div class="pt-station">
-            <span>Cihaz <strong id="pt-device">Bağlı değil</strong></span>
-            <span>Kayıt <strong id="pt-storage"></strong></span>
-          </div>
-        </div>
-        <div class="panel-body">
-          <form id="pt-form" class="pt-form" autocomplete="off">
-            <label class="field">
-              <span class="label">Ürün seri numarası</span>
-              <input id="pt-serial" class="input pt-serial" placeholder="PCB-000142" maxlength="40" spellcheck="false" autocapitalize="characters">
-            </label>
-            <label class="field">
-              <span class="label">Operatör</span>
-              <input id="pt-operator" class="input" placeholder="Opsiyonel" maxlength="64">
-            </label>
-            <label class="field">
-              <span class="label">Örnek sayısı</span>
-              <input id="pt-samples" class="input" type="number" min="1" max="100" step="1" value="5">
-            </label>
-            <div class="pt-actions">
-              <button type="submit" id="pt-start" class="btn btn-primary">Testi başlat</button>
-              <button type="button" id="pt-retest" class="btn" disabled>Tekrar test</button>
-              <button type="button" id="pt-cancel" class="btn btn-stop hidden">İptal</button>
+      <nav class="subtabs" id="pt-subtabs" aria-label="Üretim testi bölümleri">
+        <button type="button" class="subtab active" data-page="station">İstasyon</button>
+        <button type="button" class="subtab" data-page="history">Geçmiş</button>
+        <button type="button" class="subtab" data-page="products">Ürünler ve reçeteler</button>
+        <span class="subtabs-info">Kayıt: <strong id="pt-storage"></strong></span>
+      </nav>
+
+      <!-- Station: the operator's screen -->
+      <div class="pt-page" id="pt-page-station">
+        <div class="station-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Test istasyonu</h2>
+              <div class="panel-actions">
+                <label class="label" for="pt-product">Ürün</label>
+                <select id="pt-product" class="select pt-product-select"></select>
+              </div>
             </div>
-          </form>
-          <div id="pt-result" class="pt-result" role="status" aria-live="polite"></div>
-          <div id="pt-measurements" class="pt-measurements"></div>
-        </div>
-      </section>
+            <div class="panel-body">
+              <form id="pt-form" class="pt-form" autocomplete="off">
+                <div class="field">
+                  <label class="label" for="pt-serial">Seri numarası <span class="muted" id="pt-mask"></span></label>
+                  <input id="pt-serial" class="input pt-serial" maxlength="40" spellcheck="false" autocapitalize="characters">
+                </div>
+                <div class="field">
+                  <label class="label" for="pt-operator">Operatör</label>
+                  <input id="pt-operator" class="input" placeholder="Ad / sicil no" maxlength="64">
+                </div>
+                <div class="pt-actions">
+                  <button type="submit" id="pt-start" class="btn btn-primary btn-lg">Testi başlat</button>
+                  <button type="button" id="pt-cancel" class="btn btn-stop btn-lg hidden">Testi durdur</button>
+                  <span class="pt-unit" id="pt-unit"></span>
+                </div>
+              </form>
+              <div id="pt-result" class="pt-result" role="status" aria-live="polite"></div>
+              <div id="pt-measurements" class="pt-measurements"></div>
+            </div>
+          </section>
 
-      <section class="panel">
-        <div class="panel-head">
-          <div class="panel-title">
-            <h2>Ölçüm limitleri</h2>
-            <span class="panel-sub">Anahtar, satırdaki alan adıdır (<code>V5.02</code> → <code>V</code>). Sınırlar dahildir.</span>
-          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Adımlar</h2>
+                <span class="panel-sub" id="pt-recipe-info"></span>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table steps-table">
+                <thead><tr><th>#</th><th>Adım</th><th>Komut</th><th>Cevap / değer</th><th>Durum</th><th class="num">ms</th></tr></thead>
+                <tbody id="pt-steps"></tbody>
+              </table>
+            </div>
+          </section>
         </div>
-        <div class="panel-body">
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr><th>Anahtar</th><th>Ad</th><th>Birim</th><th>Min</th><th>Max</th><th></th></tr></thead>
-              <tbody id="pt-limits-body"></tbody>
-            </table>
-          </div>
-          <ul id="pt-limits-errors" class="pt-errors"></ul>
-          <div class="row mt-md">
-            <button type="button" id="pt-limits-add" class="btn btn-sm">Limit ekle</button>
-            <button type="button" id="pt-limits-reset" class="btn btn-sm">Varsayılanlar</button>
-            <button type="button" id="pt-limits-save" class="btn btn-sm btn-primary">Kaydet</button>
-          </div>
-        </div>
-      </section>
 
-      <section class="panel">
-        <div class="panel-head">
-          <div class="panel-title">
-            <h2>Test geçmişi</h2>
-            <span class="panel-sub">Seri numarası, sonuç ve tarih aralığına göre sorgu</span>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">
+              <h2>Haberleşme kaydı</h2>
+              <span class="panel-sub">Son testte gönderilen (TX) ve alınan (RX) satırlar</span>
+            </div>
           </div>
-          <div class="panel-actions">
-            <button type="button" id="pt-export" class="btn btn-sm">CSV indir</button>
+          <div class="panel-body">
+            <div class="log comm-log" id="pt-log"></div>
           </div>
+        </section>
+      </div>
+
+      <!-- History -->
+      <div class="pt-page hidden" id="pt-page-history">
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">
+              <h2>Test geçmişi</h2>
+              <span class="panel-sub">Satıra tıklayınca adım adım detay açılır</span>
+            </div>
+            <div class="panel-actions">
+              <button type="button" id="pt-export" class="btn btn-sm">CSV indir</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <form id="pt-filters" class="pt-filters">
+              <input id="pt-filter-serial" class="input" placeholder="Seri no içerir" aria-label="Seri numarası filtresi">
+              <select id="pt-filter-product" class="select" aria-label="Ürün filtresi"></select>
+              <select id="pt-filter-result" class="select" aria-label="Sonuç filtresi">
+                <option value="">Tüm sonuçlar</option>
+                <option value="PASS">PASS</option>
+                <option value="FAIL">FAIL</option>
+                <option value="ERROR">HATA</option>
+              </select>
+              <input id="pt-filter-from" class="input" type="date" aria-label="Başlangıç tarihi">
+              <input id="pt-filter-to" class="input" type="date" aria-label="Bitiş tarihi">
+              <button type="submit" class="btn btn-primary">Sorgula</button>
+            </form>
+            <div id="pt-stats" class="pt-stats"></div>
+            <div class="table-wrap">
+              <table class="table history-table">
+                <thead><tr><th>Bitiş</th><th>Seri no</th><th>Ürün</th><th class="num">Deneme</th><th>Sonuç</th><th>Sebep</th><th>Operatör</th><th class="num">Süre</th></tr></thead>
+                <tbody id="pt-history-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Products & recipes -->
+      <div class="pt-page hidden" id="pt-page-products">
+        <div class="products-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Ürünler</h2>
+              <div class="panel-actions">
+                <button type="button" id="pr-new" class="btn btn-sm">Yeni</button>
+                <button type="button" id="pr-import" class="btn btn-sm" title="JSON dosyasından içe aktar">İçe aktar</button>
+                <input type="file" id="pr-import-file" accept="application/json,.json" class="hidden">
+              </div>
+            </div>
+            <ul class="product-list" id="pr-list"></ul>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2 id="pr-title">Ürün</h2>
+                <span class="panel-sub" id="pr-meta"></span>
+              </div>
+              <div class="panel-actions">
+                <button type="button" id="pr-export" class="btn btn-sm">JSON indir</button>
+                <button type="button" id="pr-archive" class="btn btn-sm btn-danger">Arşivle</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="product-form">
+                <div class="field">
+                  <label class="label" for="pr-code">Ürün kodu</label>
+                  <input id="pr-code" class="input mono" maxlength="24" placeholder="SVB-300">
+                </div>
+                <div class="field">
+                  <label class="label" for="pr-name">Ad</label>
+                  <input id="pr-name" class="input" maxlength="64">
+                </div>
+                <div class="field">
+                  <label class="label" for="pr-mask">Seri no maskesi</label>
+                  <input id="pr-mask" class="input mono" maxlength="40" placeholder="ABC-######">
+                </div>
+                <div class="field">
+                  <label class="label" for="pr-attempts">En fazla FAIL</label>
+                  <input id="pr-attempts" class="input" type="number" min="1" max="10">
+                </div>
+              </div>
+              <p class="hint"><code>#</code> rakam, <code>@</code> harf, <code>?</code> harf veya rakam. Bir kart bu kadar kez FAIL alırsa istasyon onu tekrar test etmez; kart onarıma gider.</p>
+
+              <div class="field">
+                <label class="label" for="pr-recipe">Reçete (JSON)</label>
+                <textarea id="pr-recipe" class="textarea" rows="18" spellcheck="false"></textarea>
+              </div>
+              <ul class="pt-errors" id="pr-errors"></ul>
+              <div class="row">
+                <button type="button" id="pr-save" class="btn btn-primary">Kaydet</button>
+                <button type="button" id="pr-revert" class="btn">Değişiklikleri geri al</button>
+                <span class="muted" id="pr-dirty"></span>
+              </div>
+
+              <div class="divider"></div>
+              <h3 class="section-title">Önizleme</h3>
+              <div class="table-wrap">
+                <table class="table">
+                  <thead><tr><th>#</th><th>Tip</th><th>Adım</th><th>Komut</th><th>Beklenen / limitler</th></tr></thead>
+                  <tbody id="pr-preview"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         </div>
-        <div class="panel-body">
-          <form id="pt-filters" class="pt-filters">
-            <input id="pt-filter-serial" class="input" placeholder="Seri no içerir" aria-label="Seri numarası filtresi">
-            <select id="pt-filter-result" class="select" aria-label="Sonuç filtresi">
-              <option value="">Tüm sonuçlar</option>
-              <option value="PASS">PASS</option>
-              <option value="FAIL">FAIL</option>
-              <option value="ERROR">HATA</option>
-            </select>
-            <input id="pt-filter-from" class="input" type="date" aria-label="Başlangıç tarihi">
-            <input id="pt-filter-to" class="input" type="date" aria-label="Bitiş tarihi">
-            <button type="submit" class="btn btn-primary">Sorgula</button>
-          </form>
-          <div id="pt-stats" class="pt-stats"></div>
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr><th>Tarih</th><th>Seri no</th><th>Deneme</th><th>Sonuç</th><th>Ölçümler</th><th>Sebep</th><th></th></tr></thead>
-              <tbody id="pt-history-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+      </div>
     </main>
   </div>
 
   <div id="toast" class="toast" role="alert">
     <span id="toast-message"></span>
     <button class="icon-btn sm" type="button" data-action="close-toast" aria-label="Kapat">&times;</button>
+  </div>
+
+  <!-- Operator confirmation (confirm steps) -->
+  <div id="pt-confirm" class="modal" role="dialog" aria-modal="true" aria-labelledby="pt-confirm-title">
+    <div class="modal-box confirm-box">
+      <div class="panel-head"><h2 id="pt-confirm-title">Operatör kontrolü</h2></div>
+      <div class="panel-body">
+        <p class="confirm-question" id="pt-confirm-question"></p>
+        <div class="row confirm-actions">
+          <button type="button" class="btn btn-lg confirm-yes" id="pt-confirm-yes">Evet <kbd>E</kbd></button>
+          <button type="button" class="btn btn-lg confirm-no" id="pt-confirm-no">Hayır <kbd>H</kbd></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Test record detail -->
+  <div id="pt-detail" class="modal" role="dialog" aria-modal="true" aria-labelledby="pt-detail-title">
+    <div class="modal-box detail-box">
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2 id="pt-detail-title">Test kaydı</h2>
+          <span class="panel-sub" id="pt-detail-sub"></span>
+        </div>
+        <div class="panel-actions">
+          <button type="button" class="btn btn-sm" id="pt-detail-retest">Bu kartı tekrar test et</button>
+          <button class="icon-btn sm" type="button" id="pt-detail-close" aria-label="Kapat">&times;</button>
+        </div>
+      </div>
+      <div class="panel-body" id="pt-detail-body"></div>
+    </div>
   </div>
 
   <div id="add-panel-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="add-panel-title">
@@ -263,7 +394,10 @@
         "./js/transports.js": "./js/transports.js?v=__BUILD__",
         "./js/production.js": "./js/production.js?v=__BUILD__",
         "./js/production-ui.js": "./js/production-ui.js?v=__BUILD__",
-        "./js/results-store.js": "./js/results-store.js?v=__BUILD__"
+        "./js/results-store.js": "./js/results-store.js?v=__BUILD__",
+        "./js/recipe.js": "./js/recipe.js?v=__BUILD__",
+        "./js/runner.js": "./js/runner.js?v=__BUILD__",
+        "./js/simulator.js": "./js/simulator.js?v=__BUILD__"
       }
     }
   </script>

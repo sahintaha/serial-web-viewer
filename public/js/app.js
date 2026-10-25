@@ -5,6 +5,8 @@
 import { parseLine, rowsToCsv } from './parser.js';
 import { WebSerialTransport, ServerTransport, DemoTransport } from './transports.js';
 import { initProduction } from './production-ui.js';
+import { FAULTS } from './simulator.js';
+import { replyText } from './recipe.js';
 
 const MAX_RAW_LINES = 500;
 const MAX_HISTORY_ROWS = 10000;
@@ -16,8 +18,6 @@ const DEFAULT_LABELS = [
   { prefix: 'B', label: 'Nem' },
   { prefix: 'C', label: 'Basınç' },
   { prefix: 'D', label: 'Işık' },
-  { prefix: 'V', label: 'Voltaj' },
-  { prefix: 'I', label: 'Akım' },
 ];
 const DEFAULT_PANELS = [
   { id: 'raw-1', type: 'raw' },
@@ -27,7 +27,7 @@ const DEFAULT_PANELS = [
 const MODE_HINTS = {
   webserial: 'Bağlan\'a basınca tarayıcı port seçim penceresi açılır. Kurulum gerekmez (Chrome / Edge).',
   server: 'Node.js sunucusu üzerinden bağlanır. Ayrı alıcı/verici port desteği vardır.',
-  demo: 'Donanım gerekmez — sahte sensör verisi üretilir.',
+  demo: "Donanım gerekmez. Sanal kart, gerçek fikstür firmware'iyle aynı komutlara cevap verir.",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -116,6 +116,8 @@ function setMode(mode) {
   $('mode-hint').textContent = MODE_HINTS[mode];
   $('server-ports').classList.toggle('hidden', mode !== 'server');
   $('baud-group').classList.toggle('hidden', mode === 'demo');
+  $('sim-panel').classList.toggle('hidden', mode !== 'demo');
+  if (mode === 'demo') ensureSimulator();
   if (mode === 'server') loadPorts();
 }
 
@@ -210,9 +212,42 @@ function renderConnection() {
     : state.connected
       ? 'Bağlantıyı kes'
       : state.mode === 'demo'
-        ? 'Demoyu başlat'
+        ? 'Simülatörü bağla'
         : 'Bağlan';
   updateModeAvailability();
+}
+
+// ---------- simulator ----------
+let simulatorBound = null;
+
+/** The simulated board exists as soon as Simulator mode is chosen, so faults can be set before connecting. */
+function ensureSimulator() {
+  if (!state.transport || state.transport.mode !== 'demo') {
+    state.transport = createTransport('demo');
+    state.transport.mode = 'demo';
+  }
+  const board = state.transport.board;
+  if (simulatorBound === board) return;
+  simulatorBound = board;
+  $('sim-fault').replaceChildren(...Object.entries(FAULTS).map(([value, label]) => new Option(label, value)));
+  $('sim-fault').value = board.mode;
+  board.onChange(renderSimulator);
+  renderSimulator(board.state());
+}
+
+function renderSimulator(s) {
+  const item = (label, value, cls = '') => [
+    Object.assign(document.createElement('dt'), { textContent: label }),
+    Object.assign(document.createElement('dd'), { textContent: value, className: cls }),
+  ];
+  $('sim-state').replaceChildren(
+    ...item('Model', s.model),
+    ...item('Seri no', s.serial ?? '—'),
+    ...item('Firmware', s.firmware),
+    ...item('Gerçek arıza', FAULTS[s.fault]),
+    ...item('Besleme', s.powered ? 'AÇIK' : 'kapalı', s.powered ? 'sim-on' : ''),
+    ...item('Yeşil LED', s.led ? 'YANIYOR' : 'sönük', s.led ? 'sim-led' : '')
+  );
 }
 
 // ---------- server port list ----------
@@ -246,7 +281,9 @@ function handleLine(line) {
   const row = {
     time: new Date().toISOString(),
     raw: line,
-    fields: parseLine(line, state.labels),
+    // Protocol replies ("@...") answer a command; they are not telemetry for readouts and charts
+    reply: replyText(line) !== null,
+    fields: replyText(line) !== null ? [] : parseLine(line, state.labels),
   };
   state.lineCount += 1;
   state.history.push(row);
@@ -266,8 +303,8 @@ function flushRows() {
   if (!rows.length) return;
 
   document.querySelectorAll('[data-role="raw-log"]').forEach((log) => appendRaw(log, rows));
-  const latest = rows[rows.length - 1];
-  document.querySelectorAll('[data-role="tagged"]').forEach((el) => renderTagged(el, latest));
+  const latest = [...rows].reverse().find((r) => !r.reply);
+  if (latest) document.querySelectorAll('[data-role="tagged"]').forEach((el) => renderTagged(el, latest));
   rows.forEach(pushToSeries);
   charts.forEach(syncChart);
   document.querySelectorAll('[data-role="line-count"]').forEach((el) => {
@@ -280,6 +317,7 @@ function appendRaw(log, rows) {
   const fragment = document.createDocumentFragment();
   for (const row of rows) {
     const div = document.createElement('div');
+    if (row.reply) div.className = 'log-reply';
     const time = document.createElement('span');
     time.className = 'log-time';
     time.textContent = new Date(row.time).toLocaleTimeString('tr-TR');
@@ -581,6 +619,7 @@ function bindEvents() {
   $('theme-toggle').addEventListener('click', toggleTheme);
   $('connection-button').addEventListener('click', () => (state.connected ? disconnect() : connect()));
   $('refresh-ports').addEventListener('click', loadPorts);
+  $('sim-fault').addEventListener('change', (e) => state.transport?.board?.setMode(e.target.value));
   $('send-form').addEventListener('submit', onSendSubmit);
   $('auto-send-checkbox').addEventListener('change', (e) => (e.target.checked ? startAutoSend() : stopAutoSend()));
   $('baud-select').value = String(storage.get('baudRate', 9600));
@@ -686,6 +725,8 @@ function initViews() {
     history.replaceState(null, '', tab.dataset.view === 'production' ? '#production' : location.pathname + location.search);
     setView(tab.dataset.view);
   });
+  // Links like ".../#production" also work when only the hash changes
+  window.addEventListener('hashchange', () => setView(location.hash === '#production' ? 'production' : 'monitor'));
   setView(location.hash === '#production' ? 'production' : 'monitor');
 }
 
@@ -709,7 +750,11 @@ async function init() {
   showSupportBanner();
 
   initProduction({
-    onLine: (fn) => lineListeners.add(fn),
+    onLine: (fn) => {
+      lineListeners.add(fn);
+      return () => lineListeners.delete(fn);
+    },
+    send: (text) => (state.connected ? state.transport.send(text) : Promise.reject(new Error('Bağlantı yok'))),
     onStatus: (fn) => statusListeners.add(fn),
     getConnection: () => ({ connected: state.connected, label: state.statusLabel }),
     showToast,
