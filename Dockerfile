@@ -11,11 +11,13 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-COPY server.js ./
+COPY server.js db.js ./
 COPY public ./public
+RUN mkdir -p /app/data && chown node:node /app/data
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
+    DB_PATH=/app/data/serial-viewer.db \
     PORT=3000
 
 EXPOSE 3000

@@ -1,7 +1,8 @@
 // Streams sensor readings in a format Serial Web Viewer understands
 // and reacts to commands sent from the "Veri Gönder" card.
 //
-// Output (one line per reading):  A<temp>,B<humidity>,C<pot>,D<light>
+// Output (one line per reading):  A<temp>,B<humidity>,C<pot>,D<light>,V<volts>,I<mA>
+// V and I match the default limits of the production test view.
 // Commands (newline-terminated):  LED:ON  |  LED:OFF  |  RATE:<ms>
 
 const int LED = LED_BUILTIN;
@@ -50,6 +51,10 @@ void loop() {
     int humidity = map(analogRead(A1), 0, 1023, 0, 100);
     int pot = map(analogRead(A2), 0, 1023, 0, 100);
     int light = map(analogRead(A3), 0, 1023, 0, 100);
+    // Supply voltage through a 1:2 divider on A4, current from an INA169-style
+    // sensor on A5 (1 V = 1 A with a 1 kΩ load resistor)
+    float volts = analogRead(A4) * (5.0 / 1023.0) * 2.0;
+    float milliamps = analogRead(A5) * (5.0 / 1023.0) * 1000.0;
 
     Serial.print("A");
     Serial.print(temperature, 1);
@@ -58,6 +63,10 @@ void loop() {
     Serial.print(",C");
     Serial.print(pot);
     Serial.print(",D");
-    Serial.println(light);
+    Serial.print(light);
+    Serial.print(",V");
+    Serial.print(volts, 3);
+    Serial.print(",I");
+    Serial.println(milliamps, 1);
   }
 }

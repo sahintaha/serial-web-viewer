@@ -13,6 +13,10 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       - BAUD_RATE=9600
+      - DB_PATH=/app/data/serial-viewer.db
+    volumes:
+      # Production test results survive container restarts
+      - ./data:/app/data
     # devices:
     #   - /dev/ttyUSB0:/dev/ttyUSB0
     #   - /dev/ttyACM0:/dev/ttyACM0
