@@ -27,6 +27,10 @@
         </svg>
         <h1>Serial Viewer</h1>
       </div>
+      <nav class="view-tabs" id="view-tabs" role="tablist" aria-label="Görünüm">
+        <button type="button" class="view-tab active" data-view="monitor" role="tab" aria-selected="true">Monitör</button>
+        <button type="button" class="view-tab" data-view="production" role="tab" aria-selected="false">Üretim Testi</button>
+      </nav>
       <div class="header-actions">
         <a class="theme-toggle" href="https://github.com/sahintaha/serial-web-viewer" target="_blank" rel="noopener" aria-label="GitHub deposu" title="GitHub">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -119,7 +123,7 @@
       </section>
 
       <!-- Labels -->
-      <section class="card">
+      <section class="card monitor-only">
         <div class="card-header">
           <h2>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -138,7 +142,7 @@
       </section>
 
       <!-- Send -->
-      <section class="card">
+      <section class="card monitor-only">
         <div class="card-header">
           <h2>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -180,6 +184,100 @@
         </button>
       </div>
       <!-- Panels are rendered by js/app.js -->
+    </main>
+
+    <!-- Production test (js/production-ui.js) -->
+    <main class="production hidden" id="production-view">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2>Üretim Testi</h2>
+            <p class="card-subtitle">Seri numarası → ölçüm → limit kontrolü → PASS / FAIL → kayıt</p>
+          </div>
+          <div class="pt-station">
+            <div><span class="muted">Cihaz</span> <strong id="pt-device">Bağlı değil</strong></div>
+            <div><span class="muted">Kayıt</span> <strong id="pt-storage"></strong></div>
+          </div>
+        </div>
+        <div class="card-content">
+          <form id="pt-form" class="pt-form" autocomplete="off">
+            <label class="pt-field pt-field-serial">
+              <span class="form-label-small">Ürün seri numarası</span>
+              <input id="pt-serial" class="form-input pt-serial" placeholder="PCB-000142" maxlength="40" spellcheck="false" autocapitalize="characters">
+            </label>
+            <label class="pt-field">
+              <span class="form-label-small">Operatör</span>
+              <input id="pt-operator" class="form-input" placeholder="Opsiyonel" maxlength="64">
+            </label>
+            <label class="pt-field pt-field-small">
+              <span class="form-label-small">Örnek sayısı</span>
+              <input id="pt-samples" class="form-input" type="number" min="1" max="100" step="1" value="5">
+            </label>
+            <div class="pt-actions">
+              <button type="submit" id="pt-start" class="btn btn-primary">▶ Testi Başlat</button>
+              <button type="button" id="pt-retest" class="btn btn-secondary" disabled>↻ Tekrar Test</button>
+              <button type="button" id="pt-cancel" class="btn btn-secondary hidden">✕ İptal</button>
+            </div>
+          </form>
+
+          <div id="pt-result" class="pt-result" role="status" aria-live="polite"></div>
+          <div id="pt-measurements" class="pt-measurements"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2>Ölçüm Limitleri</h2>
+            <p class="card-subtitle">Anahtar, seri satırdaki alan adıdır (ör. <code>V5.02</code> → <code>V</code>). Sınırlar dahildir.</p>
+          </div>
+        </div>
+        <div class="card-content">
+          <div class="pt-table-wrap">
+            <table class="pt-table pt-limits">
+              <thead><tr><th>Anahtar</th><th>Ad</th><th>Birim</th><th>Min</th><th>Max</th><th></th></tr></thead>
+              <tbody id="pt-limits-body"></tbody>
+            </table>
+          </div>
+          <ul id="pt-limits-errors" class="pt-errors"></ul>
+          <div class="pt-actions mt-md">
+            <button type="button" id="pt-limits-add" class="btn btn-secondary btn-sm">+ Limit Ekle</button>
+            <button type="button" id="pt-limits-reset" class="btn btn-secondary btn-sm">Varsayılanlar</button>
+            <button type="button" id="pt-limits-save" class="btn btn-primary btn-sm">Kaydet</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2>Test Geçmişi</h2>
+            <p class="card-subtitle">Seri numarası, sonuç ve tarihe göre sorgulayın; CSV rapor alın</p>
+          </div>
+          <button type="button" id="pt-export" class="btn btn-secondary btn-sm">⬇ CSV Rapor</button>
+        </div>
+        <div class="card-content">
+          <form id="pt-filters" class="pt-filters">
+            <input id="pt-filter-serial" class="form-input" placeholder="Seri no içerir..." aria-label="Seri numarası filtresi">
+            <select id="pt-filter-result" class="form-select" aria-label="Sonuç filtresi">
+              <option value="">Tüm sonuçlar</option>
+              <option value="PASS">PASS</option>
+              <option value="FAIL">FAIL</option>
+              <option value="ERROR">HATA</option>
+            </select>
+            <input id="pt-filter-from" class="form-input" type="date" aria-label="Başlangıç tarihi">
+            <input id="pt-filter-to" class="form-input" type="date" aria-label="Bitiş tarihi">
+            <button type="submit" class="btn btn-primary btn-sm">Sorgula</button>
+          </form>
+          <div id="pt-stats" class="pt-stats"></div>
+          <div class="pt-table-wrap">
+            <table class="pt-table">
+              <thead><tr><th>Tarih</th><th>Seri No</th><th>Deneme</th><th>Sonuç</th><th>Ölçümler</th><th>Sebep</th><th></th></tr></thead>
+              <tbody id="pt-history-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 

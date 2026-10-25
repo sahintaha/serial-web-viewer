@@ -182,10 +182,16 @@ export class DemoTransport {
     const humidity = 55 + 12 * Math.sin(t / 35 + 1) + noise(2); // %
     const pressure = 101.3 + 0.4 * Math.sin(t / 50) + noise(0.05); // kPa
     const light = Math.min(100, Math.max(0, 50 + 35 * Math.sin(t / 15) + noise(6))); // %
-    // Same format an Arduino sketch would print: "A25.5,B60,C101.3,D50"
+    // Supply rail of the board under test — drifts so some boards fail the production limits
+    const voltage = 5.0 + 0.07 * Math.sin(t / 23) + noise(0.03); // V
+    const current = 118 + 32 * Math.sin(t / 17 + 2) + noise(6); // mA
+    // Same format an Arduino sketch would print: "A25.5,B60,C101.3,D50,V5.02,I120"
     this.handlers.onLine(
-      `A${temperature.toFixed(1)},B${humidity.toFixed(0)},C${pressure.toFixed(2)},D${light.toFixed(0)}`
+      `A${temperature.toFixed(1)},B${humidity.toFixed(0)},C${pressure.toFixed(2)},D${light.toFixed(0)},` +
+        `V${voltage.toFixed(3)},I${current.toFixed(1)}`
     );
+    // Simulate an occasional corrupted line (noise on the wire)
+    if (Math.random() < 0.03) this.handlers.onLine('A2#.?,B,V5..0');
   }
 
   async send(text) {

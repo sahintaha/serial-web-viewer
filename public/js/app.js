@@ -4,6 +4,7 @@
 
 import { parseLine, rowsToCsv } from './parser.js';
 import { WebSerialTransport, ServerTransport, DemoTransport } from './transports.js';
+import { initProduction } from './production-ui.js';
 
 const MAX_RAW_LINES = 500;
 const MAX_HISTORY_ROWS = 10000;
@@ -14,6 +15,8 @@ const DEFAULT_LABELS = [
   { prefix: 'B', label: 'Nem' },
   { prefix: 'C', label: 'Basınç' },
   { prefix: 'D', label: 'Işık' },
+  { prefix: 'V', label: 'Voltaj' },
+  { prefix: 'I', label: 'Akım' },
 ];
 const DEFAULT_PANELS = [
   { id: 'raw-1', type: 'raw' },
@@ -64,6 +67,10 @@ const state = {
 // Shared time series used by every chart panel
 const series = { labels: [], datasets: new Map() };
 const charts = new Map();
+
+// Other views (production test) subscribe to incoming lines and connection changes
+const lineListeners = new Set();
+const statusListeners = new Set();
 
 // Lines are rendered once per animation frame so fast devices don't freeze the page
 let pendingRows = [];
@@ -179,6 +186,7 @@ function handleStatus({ connected, label, error }) {
   state.statusLabel = label;
   if (!connected) stopAutoSend();
   renderConnection();
+  statusListeners.forEach((fn) => fn({ connected, label, error }));
   if (error) showToast(error);
   else if (connected && !wasConnected) showToast(`Bağlandı: ${label}`, 'success');
 }
@@ -243,6 +251,7 @@ function handleLine(line) {
   state.lineCount += 1;
   state.history.push(row);
   if (state.history.length > MAX_HISTORY_ROWS) state.history.shift();
+  lineListeners.forEach((fn) => fn(row));
   pendingRows.push(row);
   if (!frameRequested) {
     frameRequested = true;
@@ -557,7 +566,7 @@ function exportCsv() {
     showToast('Dışa aktarılacak veri yok');
     return;
   }
-  const blob = new Blob(['﻿' + rowsToCsv(state.history)], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob(['\uFEFF' + rowsToCsv(state.history)], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), {
     href: url,
@@ -655,6 +664,31 @@ function showSupportBanner() {
   banner.classList.remove('hidden');
 }
 
+// ---------- views (Monitor / Production test) ----------
+function setView(view) {
+  const production = view === 'production';
+  $('panels-container').classList.toggle('hidden', production);
+  $('production-view').classList.toggle('hidden', !production);
+  document.querySelectorAll('.monitor-only').forEach((el) => el.classList.toggle('hidden', production));
+  document.querySelectorAll('#view-tabs .view-tab').forEach((tab) => {
+    const active = tab.dataset.view === view;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
+  if (production) $('pt-serial').focus();
+  else charts.forEach((chart) => chart.resize());
+}
+
+function initViews() {
+  $('view-tabs').addEventListener('click', (e) => {
+    const tab = e.target.closest('.view-tab');
+    if (!tab) return;
+    history.replaceState(null, '', tab.dataset.view === 'production' ? '#production' : location.pathname + location.search);
+    setView(tab.dataset.view);
+  });
+  setView(location.hash === '#production' ? 'production' : 'monitor');
+}
+
 async function init() {
   renderLabels();
   state.panels.forEach(renderPanel);
@@ -673,6 +707,16 @@ async function init() {
   setMode(preferred);
   renderConnection();
   showSupportBanner();
+
+  initProduction({
+    onLine: (fn) => lineListeners.add(fn),
+    onStatus: (fn) => statusListeners.add(fn),
+    getConnection: () => ({ connected: state.connected, label: state.statusLabel }),
+    showToast,
+    storage,
+    serverAvailable: state.available.server,
+  });
+  initViews();
 
   if (params.has('demo')) connect();
 }
