@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/sahintaha/serial-web-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/sahintaha/serial-web-viewer/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/demo-live-3b82f6)](https://sahintaha.github.io/serial-web-viewer/?demo)
-![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 **Arduino ve gömülü cihazlar için gerçek zamanlı seri port monitörü.** Kurulum gerektirmeden tarayıcıda çalışır (Web Serial API). İsterseniz Node.js köprüsüyle de kullanabilirsiniz.
@@ -106,7 +106,7 @@ npm test       # node:test — parser + sunucu testleri
 npm run lint   # ESLint
 ```
 
-Her push'ta GitHub Actions, Node 20 ve 22 üzerinde lint ve testleri çalıştırır. `main` dalına gelen değişiklikler `public/` klasörünü otomatik olarak GitHub Pages'e yayınlar.
+Her push'ta GitHub Actions, Node 22 ve 24 üzerinde lint ve testleri çalıştırır. `main` dalına gelen değişiklikler `public/` klasörünü otomatik olarak GitHub Pages'e yayınlar.
 
 ## 📋 Yol haritası
 
