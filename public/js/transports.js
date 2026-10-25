@@ -7,6 +7,7 @@
 // ============================================
 
 import { createLineSplitter } from './parser.js';
+import { SimulatedBoard } from './simulator.js';
 
 const hex = (n) => n.toString(16).padStart(4, '0');
 
@@ -158,48 +159,46 @@ export class ServerTransport {
   }
 }
 
-/** Generates realistic-looking sensor data so the UI can be tried without hardware. */
+/**
+ * Connects to a simulated board (js/simulator.js) instead of hardware. It streams
+ * environment readings like the Arduino fixture and answers protocol commands
+ * after a realistic delay, so the production test runs exactly as with a device.
+ */
 export class DemoTransport {
   constructor(handlers) {
     this.handlers = handlers;
+    this.board = new SimulatedBoard();
     this.timer = null;
     this.t = 0;
+    this.connected = false;
   }
 
-  async connect({ intervalMs = 500 } = {}) {
+  async connect({ intervalMs = 1000 } = {}) {
     this.t = 0;
+    this.connected = true;
     this.timer = setInterval(() => this.tick(), intervalMs);
-    this.handlers.onStatus({ connected: true, label: 'Demo verisi' });
+    this.handlers.onStatus({ connected: true, label: 'Simülatör' });
     this.tick();
   }
 
   tick() {
     this.t += 1;
-    const t = this.t;
-    const noise = (scale) => (Math.random() - 0.5) * scale;
-    // Units chosen so every series shares one sensible y-axis
-    const temperature = 24 + 4 * Math.sin(t / 20) + noise(0.6); // °C
-    const humidity = 55 + 12 * Math.sin(t / 35 + 1) + noise(2); // %
-    const pressure = 101.3 + 0.4 * Math.sin(t / 50) + noise(0.05); // kPa
-    const light = Math.min(100, Math.max(0, 50 + 35 * Math.sin(t / 15) + noise(6))); // %
-    // Supply rail of the board under test — drifts so some boards fail the production limits
-    const voltage = 5.0 + 0.07 * Math.sin(t / 23) + noise(0.03); // V
-    const current = 118 + 32 * Math.sin(t / 17 + 2) + noise(6); // mA
-    // Same format an Arduino sketch would print: "A25.5,B60,C101.3,D50,V5.02,I120"
-    this.handlers.onLine(
-      `A${temperature.toFixed(1)},B${humidity.toFixed(0)},C${pressure.toFixed(2)},D${light.toFixed(0)},` +
-        `V${voltage.toFixed(3)},I${current.toFixed(1)}`
-    );
-    // Simulate an occasional corrupted line (noise on the wire)
-    if (Math.random() < 0.03) this.handlers.onLine('A2#.?,B,V5..0');
+    if (!this.board.stream) return;
+    this.handlers.onLine(this.board.streamLine(this.t));
+    // An occasional corrupted line, as on a noisy cable
+    if (Math.random() < 0.02) this.handlers.onLine('A2#.?,B,C1..0');
   }
 
   async send(text) {
-    // Pretend the device acknowledges every command
-    setTimeout(() => this.handlers.onLine(`ACK:${text}`), 50);
+    if (!this.connected) throw new Error('Simülatör bağlı değil');
+    const reply = this.board.handle(text);
+    if (reply === null) return;
+    // UART + firmware latency
+    setTimeout(() => this.connected && this.handlers.onLine(reply), 15 + Math.random() * 45);
   }
 
   async disconnect() {
+    this.connected = false;
     clearInterval(this.timer);
     this.timer = null;
     this.handlers.onStatus({ connected: false });
