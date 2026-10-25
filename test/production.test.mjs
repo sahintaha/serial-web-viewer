@@ -1,171 +1,125 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  DEFAULT_LIMITS,
-  normalizeSerial,
-  validateSerial,
-  validateLimits,
-  evaluateTest,
-  prepareTestRecord,
-  resultsToCsv,
-  summarize,
-  filterRecords,
-} from '../public/js/production.js';
+import { DEFAULT_PRODUCTS, validateProduct } from '../public/js/recipe.js';
+import { prepareTestRecord, resultsToCsv, summarize, filterRecords, unitStatus, cleanLog } from '../public/js/production.js';
 
-const LIMITS = [
-  { key: 'V', name: 'Voltaj', unit: 'V', min: 4.9, max: 5.1 },
-  { key: 'I', name: 'Akım', unit: 'mA', min: 0, max: 150 },
+const SENSOR = { ...validateProduct(DEFAULT_PRODUCTS[0]).product, revision: 3 };
+
+const GOOD_STEPS = [
+  { reply: 'OK', attempts: 1, durationMs: 20 },
+  { reply: 'ID SVB-100 FW1.4.2', attempts: 1 },
+  { reply: 'OK', attempts: 1 },
+  { durationMs: 300 },
+  { replies: ['V5.01,I115', 'V5.0,I116', 'V5.02,I114', 'V5.0,I115', 'V5.01,I115'] },
+  { reply: 'OK', attempts: 1 },
+  { reply: 'OK', attempts: 1, answer: true },
 ];
 
 function submission(overrides = {}) {
   return {
-    serial: 'pcb-000142',
+    serial: 'sns-000142',
     operator: 'Taha',
-    sampleCount: 3,
+    productCode: 'SVB-100',
+    recipeRevision: 3,
     startedAt: '2026-10-25T10:00:00.000Z',
-    finishedAt: '2026-10-25T10:00:02.000Z',
-    limits: LIMITS,
-    samples: { V: [5.01, 5.02, 5.03], I: [118, 120, 122] },
+    finishedAt: '2026-10-25T10:00:04.500Z',
+    steps: GOOD_STEPS,
+    teardown: [{ reply: 'OK' }, { reply: 'OK' }],
     ...overrides,
   };
 }
 
-test('serial numbers are normalized and validated', () => {
-  assert.equal(normalizeSerial('  pcb-000142 '), 'PCB-000142');
-  assert.equal(validateSerial('PCB-000142'), null);
-  assert.equal(validateSerial('A_1-B'), null);
-  assert.match(validateSerial(''), /boş/);
-  assert.ok(validateSerial('AB'));
-  assert.ok(validateSerial('PCB 0001'));
-  assert.ok(validateSerial('-PCB'));
-  assert.ok(validateSerial('X'.repeat(41)));
-});
-
-test('default limits are valid', () => {
-  assert.deepEqual(validateLimits(DEFAULT_LIMITS).errors, []);
-});
-
-test('limits: numeric strings from form inputs are converted', () => {
-  const { limits, errors } = validateLimits([{ key: 'T', name: '', unit: '°C', min: '20', max: '30.5' }]);
+test('prepareTestRecord evaluates the run against the given revision', () => {
+  const { errors, value } = prepareTestRecord(submission(), SENSOR);
   assert.deepEqual(errors, []);
-  assert.deepEqual(limits[0], { key: 'T', name: 'T', unit: '°C', min: 20, max: 30.5 });
-});
-
-test('limits: invalid tables are rejected with row numbers', () => {
-  assert.match(validateLimits([]).errors[0], /En az bir/);
-  const { errors } = validateLimits([
-    { key: 'V', min: 1, max: 2 },
-    { key: 'V', min: 1, max: 2 },
-    { key: '', min: 'x', max: 2 },
-    { key: 'A B', min: 5, max: 1 },
-  ]);
-  assert.ok(errors.some((e) => /Satır 2: "V" anahtarı tekrar/.test(e)));
-  assert.ok(errors.some((e) => /Satır 3: anahtar boş/.test(e)));
-  assert.ok(errors.some((e) => /Satır 3: minimum sayı/.test(e)));
-  assert.ok(errors.some((e) => /Satır 4: geçersiz anahtar/.test(e)));
-  assert.ok(errors.some((e) => /Satır 4: minimum, maksimumdan büyük/.test(e)));
-});
-
-test('evaluate: PASS when every mean is within limits', () => {
-  const r = evaluateTest({ V: [5.0, 5.02], I: [100, 110] }, LIMITS, { sampleCount: 2 });
-  assert.equal(r.result, 'PASS');
-  assert.equal(r.reason, null);
-  assert.equal(r.measurements[0].value, 5.01);
-  assert.equal(r.measurements[1].count, 2);
-});
-
-test('evaluate: limits are inclusive', () => {
-  const r = evaluateTest({ V: [4.9], I: [150] }, LIMITS, { sampleCount: 1 });
-  assert.equal(r.result, 'PASS');
-});
-
-test('evaluate: FAIL names the measurement and the violated bound', () => {
-  const r = evaluateTest({ V: [5.2, 5.2], I: [120, 120] }, LIMITS, { sampleCount: 2 });
-  assert.equal(r.result, 'FAIL');
-  assert.equal(r.measurements[0].status, 'FAIL');
-  assert.match(r.reason, /Voltaj limit dışı \(5\.2 V > 5\.1 V\)/);
-
-  const low = evaluateTest({ V: [5], I: [-3] }, LIMITS, { sampleCount: 1 });
-  assert.match(low.reason, /Akım limit dışı \(-3 mA < 0 mA\)/);
-});
-
-test('evaluate: missing samples give ERROR, not FAIL', () => {
-  const r = evaluateTest({ V: [5.0, 5.0, 5.0], I: [120] }, LIMITS, { sampleCount: 3 });
-  assert.equal(r.result, 'ERROR');
-  assert.equal(r.measurements[1].status, 'MISSING');
-  assert.match(r.reason, /Eksik ölçüm: Akım \(1\/3\)/);
-});
-
-test('evaluate: a known failure wins over missing data or an aborted run', () => {
-  const r = evaluateTest({ V: [6, 6] }, LIMITS, { sampleCount: 2, error: 'Bağlantı koptu' });
-  assert.equal(r.result, 'FAIL');
-});
-
-test('evaluate: run errors are reported as ERROR with the given reason', () => {
-  const r = evaluateTest({ V: [5], I: [100] }, LIMITS, { sampleCount: 1, error: 'Bağlantı koptu' });
-  assert.equal(r.result, 'ERROR');
-  assert.equal(r.reason, 'Bağlantı koptu');
-});
-
-test('evaluate: non-finite samples are ignored', () => {
-  const r = evaluateTest({ V: [5, NaN, Infinity, '5'], I: [100] }, LIMITS, { sampleCount: 1 });
-  assert.equal(r.measurements[0].count, 1);
-  assert.equal(r.result, 'PASS');
-});
-
-test('prepareTestRecord: accepts a valid run and evaluates it', () => {
-  const { errors, value } = prepareTestRecord(submission());
-  assert.deepEqual(errors, []);
-  assert.equal(value.serial, 'PCB-000142');
+  assert.equal(value.serial, 'SNS-000142');
+  assert.equal(value.productCode, 'SVB-100');
+  assert.equal(value.recipeRevision, 3);
   assert.equal(value.result, 'PASS');
   assert.equal(value.measurements.length, 2);
+  assert.equal(value.steps[4].data.replies.length, 5);
 });
 
-test('prepareTestRecord: ignores a client-supplied verdict', () => {
-  const { value } = prepareTestRecord(submission({ result: 'PASS', samples: { V: [9, 9, 9], I: [1, 1, 1] } }));
+test('prepareTestRecord ignores any verdict sent by the client', () => {
+  const steps = [...GOOD_STEPS];
+  steps[4] = { replies: Array(5).fill('V5.0,I190') };
+  const { value } = prepareTestRecord(submission({ steps, result: 'PASS', reason: null }), SENSOR);
   assert.equal(value.result, 'FAIL');
+  assert.match(value.reason, /Akım limit dışı/);
 });
 
-test('prepareTestRecord: rejects malformed input', () => {
+test('prepareTestRecord: run-level errors', () => {
+  const { value } = prepareTestRecord(submission({ steps: GOOD_STEPS.slice(0, 2), error: 'Test sırasında cihaz bağlantısı koptu' }), SENSOR);
+  assert.equal(value.result, 'ERROR');
+  assert.equal(value.reason, 'Test sırasında cihaz bağlantısı koptu');
+});
+
+test('prepareTestRecord rejects malformed input', () => {
   const cases = [
-    [{ serial: '' }, /Seri numarası boş/],
-    [{ sampleCount: 0 }, /Örnek sayısı/],
-    [{ sampleCount: 2.5 }, /Örnek sayısı/],
-    [{ startedAt: 'yesterday' }, /zaman/],
+    [{ serial: 'PWR-000142' }, /"SNS-######" biçiminde/],
+    [{ startedAt: 'dün' }, /zaman/],
     [{ finishedAt: '2026-10-25T09:00:00.000Z' }, /Bitiş zamanı/],
-    [{ limits: [] }, /limit/],
-    [{ samples: { V: [5, '5.1', 5], I: [1, 1, 1] } }, /"V" için ölçüm verisi geçersiz/],
-    [{ samples: { V: 'abc' } }, /"V" için/],
+    [{ steps: 'x' }, /Adım geçersiz/],
+    [{ steps: Array(8).fill({}) }, /Adım geçersiz/],
+    [{ steps: [{ reply: 5 }] }, /Adım 1: adım verisi geçersiz/],
+    [{ steps: [{ reply: 'x'.repeat(300) }] }, /Adım 1/],
+    [{ steps: [{ replies: 'V5' }] }, /Adım 1/],
+    [{ steps: [{ answer: 'evet' }] }, /Adım 1/],
+    [{ teardown: [{ attempts: 0 }] }, /Teardown 1/],
   ];
   for (const [override, pattern] of cases) {
-    const { errors } = prepareTestRecord(submission(override));
-    assert.ok(errors.some((e) => pattern.test(e)), `${JSON.stringify(override)} → ${errors}`);
+    const { errors } = prepareTestRecord(submission(override), SENSOR);
+    assert.ok(errors.some((e) => pattern.test(e)), `${JSON.stringify(override).slice(0, 60)} → ${errors}`);
   }
-  assert.ok(prepareTestRecord(null).errors.length > 0);
+  assert.deepEqual(prepareTestRecord(submission(), null).errors, ['Ürün / reçete revizyonu bulunamadı']);
 });
 
-test('resultsToCsv: one row per test, value + status per measurement', () => {
-  const { value } = prepareTestRecord(submission({ samples: { V: [5.2, 5.2, 5.2], I: [1, 2, 3] } }));
-  const csv = resultsToCsv([{ id: 7, attempt: 2, ...value }]);
-  const [header, row] = csv.split('\n');
+test('resultsToCsv: product, revision, failed step and one column pair per measurement', () => {
+  const steps = [...GOOD_STEPS];
+  steps[4] = { replies: Array(5).fill('V5.0,I190') };
+  const { value } = prepareTestRecord(submission({ steps }), SENSOR);
+  const [header, row] = resultsToCsv([{ id: 7, attempt: 2, ...value }]).split('\n');
   assert.equal(
     header,
-    'id,serial,attempt,result,reason,operator,started_at,finished_at,sample_count,Voltaj [V],Voltaj [V] status,Akım [mA],Akım [mA] status'
+    'id,serial,product,recipe_revision,attempt,result,failed_step,reason,operator,started_at,finished_at,duration_s,' +
+      'Voltaj [V],Voltaj [V] status,Akım [mA],Akım [mA] status'
   );
-  assert.match(row, /^7,PCB-000142,2,FAIL,Voltaj limit dışı \(5\.2 V > 5\.1 V\),Taha,/);
-  assert.match(row, /,5\.2,FAIL,2,PASS$/);
+  assert.match(row, /^7,SNS-000142,SVB-100,3,2,FAIL,5,Adım 5 \(Besleme ölçümü\): Akım limit dışı .*,Taha,.*,4\.5,5,PASS,190,FAIL$/);
 });
 
 test('summarize and filterRecords', () => {
   const records = [
-    { serial: 'PCB-1', result: 'PASS', finishedAt: '2026-10-24T10:00:00.000Z' },
-    { serial: 'PCB-2', result: 'FAIL', finishedAt: '2026-10-25T10:00:00.000Z' },
-    { serial: 'XYZ-3', result: 'PASS', finishedAt: '2026-10-25T12:00:00.000Z' },
-    { serial: 'PCB-2', result: 'ERROR', finishedAt: '2026-10-25T13:00:00.000Z' },
+    { serial: 'SNS-1', productCode: 'SVB-100', result: 'PASS', finishedAt: '2026-10-24T10:00:00.000Z' },
+    { serial: 'SNS-2', productCode: 'SVB-100', result: 'FAIL', finishedAt: '2026-10-25T10:00:00.000Z' },
+    { serial: 'PWR-3', productCode: 'SVB-200', result: 'PASS', finishedAt: '2026-10-25T12:00:00.000Z' },
+    { serial: 'SNS-2', productCode: 'SVB-100', result: 'ERROR', finishedAt: '2026-10-25T13:00:00.000Z' },
   ];
   assert.deepEqual(summarize(records), { total: 4, PASS: 2, FAIL: 1, ERROR: 1, yield: 50 });
-  assert.deepEqual(summarize([]).yield, null);
-  assert.equal(filterRecords(records, { serial: 'pcb' }).length, 3);
+  assert.equal(summarize([]).yield, null);
+  assert.equal(filterRecords(records, { serial: 'sns' }).length, 3);
+  assert.equal(filterRecords(records, { product: 'SVB-200' }).length, 1);
   assert.equal(filterRecords(records, { result: 'PASS' }).length, 2);
   assert.equal(filterRecords(records, { from: '2026-10-25T00:00:00.000Z', to: '2026-10-25T12:00:00.000Z' }).length, 2);
+});
+
+test('unitStatus: only FAIL counts towards the retest limit', () => {
+  const r = (result, h) => ({ result, finishedAt: `2026-10-25T1${h}:00:00.000Z` });
+  assert.deepEqual(unitStatus([], 3), { attempts: 0, failures: 0, passed: false, lastResult: null, lastAt: null, blocked: false });
+  const flaky = unitStatus([r('ERROR', 0), r('ERROR', 1), r('FAIL', 2)], 2);
+  assert.equal(flaky.blocked, false);
+  assert.equal(flaky.lastResult, 'FAIL');
+  assert.equal(unitStatus([r('FAIL', 0), r('FAIL', 1)], 2).blocked, true);
+  assert.equal(unitStatus([r('FAIL', 0), r('FAIL', 1), r('PASS', 2)], 2).blocked, false);
+});
+
+test('cleanLog keeps well-formed entries only', () => {
+  const log = cleanLog([
+    { t: 1.6, dir: 'TX', text: 'MEAS?' },
+    { t: 5, dir: 'RX', text: 'x'.repeat(400) },
+    { t: 'x', dir: 'RX', text: 'bad' },
+    { t: 1, dir: 'HACK', text: 'bad' },
+    null,
+  ]);
+  assert.deepEqual(log.map((e) => [e.t, e.dir, e.text.length]), [[2, 'TX', 5], [5, 'RX', 256]]);
+  assert.deepEqual(cleanLog('nope'), []);
 });

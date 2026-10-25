@@ -2,8 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS test_results (
+// Each migration moves the schema one version forward (PRAGMA user_version).
+// Existing databases are upgraded in place; nothing is ever dropped.
+const MIGRATIONS = [
+  // v1: limit-based production test
+  `
+  CREATE TABLE test_results (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     serial        TEXT    NOT NULL,
     attempt       INTEGER NOT NULL,
@@ -15,8 +19,7 @@ const SCHEMA = `
     finished_at   TEXT    NOT NULL,
     limits_json   TEXT    NOT NULL
   );
-
-  CREATE TABLE IF NOT EXISTS measurements (
+  CREATE TABLE measurements (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     test_id  INTEGER NOT NULL REFERENCES test_results(id) ON DELETE CASCADE,
     key      TEXT    NOT NULL,
@@ -28,43 +31,170 @@ const SCHEMA = `
     count    INTEGER NOT NULL,
     status   TEXT    NOT NULL CHECK (status IN ('PASS', 'FAIL', 'MISSING'))
   );
+  CREATE INDEX idx_results_serial   ON test_results(serial);
+  CREATE INDEX idx_results_finished ON test_results(finished_at);
+  CREATE INDEX idx_measurements_test ON measurements(test_id);
+  `,
+  // v2: products with versioned recipes, step-based results
+  `
+  CREATE TABLE products (
+    code        TEXT    PRIMARY KEY,
+    name        TEXT    NOT NULL,
+    revision    INTEGER NOT NULL,
+    archived    INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT    NOT NULL
+  );
+  CREATE TABLE product_revisions (
+    code             TEXT    NOT NULL REFERENCES products(code),
+    revision         INTEGER NOT NULL,
+    definition_json  TEXT    NOT NULL,
+    created_at       TEXT    NOT NULL,
+    PRIMARY KEY (code, revision)
+  );
+  ALTER TABLE test_results ADD COLUMN product_code    TEXT;
+  ALTER TABLE test_results ADD COLUMN product_name    TEXT;
+  ALTER TABLE test_results ADD COLUMN recipe_revision INTEGER;
+  ALTER TABLE test_results ADD COLUMN failed_step     INTEGER;
+  ALTER TABLE test_results ADD COLUMN steps_json      TEXT;
+  ALTER TABLE test_results ADD COLUMN log_json        TEXT;
+  ALTER TABLE measurements ADD COLUMN step            INTEGER;
+  CREATE INDEX idx_results_product ON test_results(product_code);
+  `,
+];
 
-  CREATE INDEX IF NOT EXISTS idx_results_serial   ON test_results(serial);
-  CREATE INDEX IF NOT EXISTS idx_results_finished ON test_results(finished_at);
-  CREATE INDEX IF NOT EXISTS idx_measurements_test ON measurements(test_id);
-`;
+/** Legacy v1 columns are filled for new rows so old readers keep working. */
+const LEGACY_SAMPLE_COUNT = 0;
+const LEGACY_LIMITS = '[]';
 
 /**
- * Opens (or creates) the production test database.
+ * Opens (or creates and migrates) the production test database.
  * @param {string} file path to the SQLite file, or ":memory:"
  */
 function openResultsDb(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
-  db.exec(SCHEMA);
 
-  const countAttempts = db.prepare('SELECT COUNT(*) AS n FROM test_results WHERE serial = ?');
+  // A v1 database created before user_version was used already has the tables
+  let version = Number(db.prepare('PRAGMA user_version').get().user_version);
+  if (version === 0 && db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'test_results'").get()) version = 1;
+  for (let v = version; v < MIGRATIONS.length; v += 1) {
+    db.exec('BEGIN');
+    try {
+      db.exec(MIGRATIONS[v]);
+      db.exec(`PRAGMA user_version = ${v + 1}`);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  const transaction = (fn) => {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const value = fn();
+      db.exec('COMMIT');
+      return value;
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  };
+
+  // ---------- products ----------
+
+  function productFrom(row, definitionJson) {
+    return {
+      ...JSON.parse(definitionJson),
+      revision: row.revision,
+      archived: Boolean(row.archived),
+      updatedAt: row.updated_at ?? row.created_at,
+    };
+  }
+
+  function listProducts({ includeArchived = false } = {}) {
+    return db
+      .prepare(
+        `SELECT p.*, r.definition_json FROM products p
+         JOIN product_revisions r ON r.code = p.code AND r.revision = p.revision
+         ${includeArchived ? '' : 'WHERE p.archived = 0'} ORDER BY p.code`
+      )
+      .all()
+      .map((row) => productFrom(row, row.definition_json));
+  }
+
+  /** Current revision, or a specific one (old results reference the revision they ran with). */
+  function getProduct(code, revision) {
+    const head = db.prepare('SELECT * FROM products WHERE code = ?').get(code);
+    if (!head) return null;
+    const rev = revision ?? head.revision;
+    const row = db.prepare('SELECT * FROM product_revisions WHERE code = ? AND revision = ?').get(code, rev);
+    return row ? productFrom({ ...head, revision: rev }, row.definition_json) : null;
+  }
+
+  /** Stores a validated product. Creates a new revision only when the definition changed. */
+  function saveProduct(product) {
+    const json = JSON.stringify(product);
+    const now = new Date().toISOString();
+    return transaction(() => {
+      const head = db.prepare('SELECT * FROM products WHERE code = ?').get(product.code);
+      if (head) {
+        const current = db.prepare('SELECT definition_json FROM product_revisions WHERE code = ? AND revision = ?').get(head.code, head.revision);
+        if (current.definition_json === json && !head.archived) return getProduct(product.code);
+        const revision = current.definition_json === json ? head.revision : head.revision + 1;
+        if (revision !== head.revision) {
+          db.prepare('INSERT INTO product_revisions VALUES (?, ?, ?, ?)').run(product.code, revision, json, now);
+        }
+        db.prepare('UPDATE products SET name = ?, revision = ?, archived = 0, updated_at = ? WHERE code = ?').run(product.name, revision, now, product.code);
+      } else {
+        db.prepare('INSERT INTO products VALUES (?, ?, 1, 0, ?)').run(product.code, product.name, now);
+        db.prepare('INSERT INTO product_revisions VALUES (?, 1, ?, ?)').run(product.code, json, now);
+      }
+      return getProduct(product.code);
+    });
+  }
+
+  /** Products are archived, never deleted: test results keep pointing at their recipe. */
+  function archiveProduct(code) {
+    return db.prepare('UPDATE products SET archived = 1, updated_at = ? WHERE code = ?').run(new Date().toISOString(), code).changes > 0;
+  }
+
+  function seedProducts(products) {
+    if (db.prepare('SELECT COUNT(*) AS n FROM products').get().n > 0) return;
+    for (const p of products) saveProduct(p);
+  }
+
+  // ---------- test results ----------
+
   const insertResult = db.prepare(`
-    INSERT INTO test_results (serial, attempt, result, reason, operator, sample_count, started_at, finished_at, limits_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    INSERT INTO test_results (serial, attempt, result, reason, operator, sample_count, started_at, finished_at, limits_json,
+                              product_code, product_name, recipe_revision, failed_step, steps_json, log_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const insertMeasurement = db.prepare(`
-    INSERT INTO measurements (test_id, key, name, unit, value, min, max, count, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    INSERT INTO measurements (test_id, step, key, name, unit, value, min, max, count, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   function toRecord(row, measurements) {
+    const steps = row.steps_json ? JSON.parse(row.steps_json) : { steps: [], teardown: [] };
     return {
       id: row.id,
       serial: row.serial,
+      productCode: row.product_code,
+      productName: row.product_name,
+      recipeRevision: row.recipe_revision,
       attempt: row.attempt,
       result: row.result,
       reason: row.reason,
+      failedStep: row.failed_step,
       operator: row.operator,
-      sampleCount: row.sample_count,
       startedAt: row.started_at,
       finishedAt: row.finished_at,
-      limits: JSON.parse(row.limits_json),
+      steps: steps.steps,
+      teardown: steps.teardown,
+      log: row.log_json ? JSON.parse(row.log_json) : [],
       measurements: measurements.map((m) => ({
+        step: m.step,
         key: m.key,
         name: m.name,
         unit: m.unit,
@@ -87,25 +217,22 @@ function openResultsDb(file) {
     return byTest;
   }
 
-  /** Stores an evaluated test (see prepareTestRecord) and returns it with id and attempt number. */
-  function insert(test) {
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const attempt = Number(countAttempts.get(test.serial).n) + 1;
+  /** Stores an evaluated run (see prepareTestRecord) and returns it with id and attempt number. */
+  function insert(test, log = []) {
+    return transaction(() => {
+      const attempt = Number(db.prepare('SELECT COUNT(*) AS n FROM test_results WHERE serial = ?').get(test.serial).n) + 1;
       const { lastInsertRowid } = insertResult.run(
-        test.serial, attempt, test.result, test.reason, test.operator || null, test.sampleCount,
-        test.startedAt, test.finishedAt, JSON.stringify(test.limits)
+        test.serial, attempt, test.result, test.reason, test.operator || null, LEGACY_SAMPLE_COUNT,
+        test.startedAt, test.finishedAt, LEGACY_LIMITS,
+        test.productCode, test.productName, test.recipeRevision, test.failedStep,
+        JSON.stringify({ steps: test.steps, teardown: test.teardown }), JSON.stringify(log)
       );
       const id = Number(lastInsertRowid);
       for (const m of test.measurements) {
-        insertMeasurement.run(id, m.key, m.name, m.unit || null, m.value, m.min, m.max, m.count, m.status);
+        insertMeasurement.run(id, m.step, m.key, m.name, m.unit || null, m.value, m.min, m.max, m.count, m.status);
       }
-      db.exec('COMMIT');
       return get(id);
-    } catch (err) {
-      db.exec('ROLLBACK');
-      throw err;
-    }
+    });
   }
 
   function get(id) {
@@ -113,12 +240,19 @@ function openResultsDb(file) {
     return row ? toRecord(row, measurementsFor([row.id]).get(row.id)) : null;
   }
 
-  function buildWhere({ serial, result, from, to } = {}) {
+  function buildWhere({ serial, serialExact, product, result, from, to } = {}) {
     const clauses = [];
     const params = [];
-    if (serial) {
+    if (serialExact) {
+      clauses.push('serial = ?');
+      params.push(serialExact);
+    } else if (serial) {
       clauses.push("serial LIKE ? ESCAPE '\\'");
       params.push(`%${serial.replace(/[\\%_]/g, (c) => '\\' + c)}%`);
+    }
+    if (product) {
+      clauses.push('product_code = ?');
+      params.push(product);
     }
     if (result) {
       clauses.push('result = ?');
@@ -136,7 +270,7 @@ function openResultsDb(file) {
   }
 
   /**
-   * @param {{serial?: string, result?: string, from?: string, to?: string, limit?: number, offset?: number}} filters
+   * @param {{serial?: string, serialExact?: string, product?: string, result?: string, from?: string, to?: string, limit?: number, offset?: number}} filters
    * @returns {{items: object[], stats: object}}
    */
   function query(filters = {}) {
@@ -158,7 +292,26 @@ function openResultsDb(file) {
     return { items: rows.map((r) => toRecord(r, byTest.get(r.id))), stats };
   }
 
-  return { insert, get, query, close: () => db.close() };
+  /** Minimal history of one unit, for the retest policy. */
+  function unitHistory(serial) {
+    return db
+      .prepare('SELECT result, finished_at AS finishedAt FROM test_results WHERE serial = ? ORDER BY finished_at')
+      .all(serial)
+      .map((r) => ({ ...r }));
+  }
+
+  return {
+    listProducts,
+    getProduct,
+    saveProduct,
+    archiveProduct,
+    seedProducts,
+    insert,
+    get,
+    query,
+    unitHistory,
+    close: () => db.close(),
+  };
 }
 
 module.exports = { openResultsDb };

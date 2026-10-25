@@ -6,8 +6,10 @@ const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const { openResultsDb } = require('./db');
 
-// Validation / PASS-FAIL logic is shared with the browser (ES module)
-const productionModule = import('./public/js/production.js');
+// Validation, recipe evaluation and reporting are shared with the browser (ES modules)
+const shared = Promise.all([import('./public/js/production.js'), import('./public/js/recipe.js')]).then(
+  ([production, recipe]) => ({ production, recipe })
+);
 
 // Optional .env support (Node >= 20.12) without an extra dependency
 try {
@@ -50,11 +52,53 @@ function createServer({ dbPath = DEFAULT_DB_PATH } = {}) {
     res.json({ status: 'ok', connected: state.connected, storage: 'sqlite' });
   });
 
+  // ---------- products (versioned recipes) ----------
+  const ready = shared.then(({ recipe }) => {
+    db.seedProducts(recipe.DEFAULT_PRODUCTS.map((p) => recipe.validateProduct(p).product));
+    return shared;
+  });
+
+  app.get('/api/products', async (req, res) => {
+    await ready;
+    res.json(db.listProducts({ includeArchived: req.query.archived === '1' }));
+  });
+
+  app.get('/api/products/:code', async (req, res) => {
+    await ready;
+    const revision = req.query.revision === undefined ? undefined : Number(req.query.revision);
+    if (revision !== undefined && !Number.isInteger(revision)) return res.status(400).json({ errors: ['Geçersiz revizyon'] });
+    const product = db.getProduct(String(req.params.code).toUpperCase(), revision);
+    if (!product) return res.status(404).json({ errors: ['Ürün bulunamadı'] });
+    res.json(product);
+  });
+
+  app.put('/api/products/:code', async (req, res) => {
+    const { recipe } = await ready;
+    const { product, errors } = recipe.validateProduct({ ...req.body, code: req.params.code });
+    if (errors.length) return res.status(400).json({ errors });
+    res.json(db.saveProduct(product));
+  });
+
+  app.delete('/api/products/:code', async (req, res) => {
+    await ready;
+    if (!db.archiveProduct(String(req.params.code).toUpperCase())) return res.status(404).json({ errors: ['Ürün bulunamadı'] });
+    res.status(204).end();
+  });
+
+  // Retest policy for one unit: attempts so far, failures, blocked?
+  app.get('/api/units/:serial', async (req, res) => {
+    const { production, recipe } = await ready;
+    const serial = recipe.normalizeSerial(req.params.serial);
+    const product = req.query.product ? db.getProduct(String(req.query.product).toUpperCase()) : null;
+    res.json({ serial, ...production.unitStatus(db.unitHistory(serial), product?.maxAttempts ?? Infinity) });
+  });
+
   // ---------- production test results ----------
   function parseFilters(query, { maxLimit = 1000 } = {}) {
     const errors = [];
     const filters = {};
     if (query.serial) filters.serial = String(query.serial).trim().toUpperCase().slice(0, 40);
+    if (query.product) filters.product = String(query.product).trim().toUpperCase().slice(0, 24);
     if (query.result) {
       if (!['PASS', 'FAIL', 'ERROR'].includes(query.result)) errors.push('Geçersiz sonuç filtresi');
       else filters.result = query.result;
@@ -75,11 +119,15 @@ function createServer({ dbPath = DEFAULT_DB_PATH } = {}) {
   }
 
   app.post('/api/tests', async (req, res) => {
-    const { prepareTestRecord } = await productionModule;
-    const { errors, value } = prepareTestRecord(req.body);
+    const { production } = await ready;
+    const code = String(req.body?.productCode ?? '').toUpperCase();
+    const revision = Number(req.body?.recipeRevision);
+    // The verdict is recomputed with the exact recipe revision the station ran
+    const product = code && Number.isInteger(revision) ? db.getProduct(code, revision) : null;
+    const { errors, value } = production.prepareTestRecord(req.body, product);
     if (errors.length) return res.status(400).json({ errors });
     try {
-      res.status(201).json(db.insert(value));
+      res.status(201).json(db.insert(value, production.cleanLog(req.body?.log)));
     } catch (err) {
       console.error('❌ Test sonucu kaydedilemedi:', err.message);
       res.status(500).json({ errors: ['Test sonucu kaydedilemedi'] });
@@ -93,7 +141,7 @@ function createServer({ dbPath = DEFAULT_DB_PATH } = {}) {
   });
 
   app.get('/api/tests/export.csv', async (req, res) => {
-    const { resultsToCsv } = await productionModule;
+    const { production } = await ready;
     const { filters, errors } = parseFilters({ limit: 100000, ...req.query }, { maxLimit: 100000 });
     if (errors.length) return res.status(400).json({ errors });
     const { items } = db.query(filters);
@@ -101,7 +149,7 @@ function createServer({ dbPath = DEFAULT_DB_PATH } = {}) {
     res.type('text/csv; charset=utf-8');
     res.attachment(`test-raporu-${stamp}.csv`);
     // BOM so Excel opens Turkish characters correctly
-    res.send('\uFEFF' + resultsToCsv(items));
+    res.send('\uFEFF' + production.resultsToCsv(items));
   });
 
   app.get('/api/tests/:id', (req, res) => {

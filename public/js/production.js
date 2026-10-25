@@ -1,175 +1,100 @@
 // ============================================
-// PRODUCTION TEST — pure logic shared by the browser and server.js
-// (validation, PASS/FAIL evaluation, CSV report). Unit tested in /test.
+// PRODUCTION TEST RECORDS — pure logic shared by the browser and server.js
+// (run validation, CSV report, statistics, retest policy). Unit tested in /test.
 // ============================================
 
 import { csvCell } from './parser.js';
+import { evaluateRun, formatValue, normalizeSerial, validateSerial, MAX_REPLY_LENGTH } from './recipe.js';
 
 export const RESULTS = ['PASS', 'FAIL', 'ERROR'];
-export const SERIAL_RE = /^[A-Z0-9][A-Z0-9_-]{2,39}$/;
-export const MAX_SAMPLE_COUNT = 100;
 
-export const DEFAULT_LIMITS = [
-  { key: 'V', name: 'Voltaj', unit: 'V', min: 4.9, max: 5.1 },
-  { key: 'I', name: 'Akım', unit: 'mA', min: 0, max: 150 },
-];
-
-const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 const isIsoDate = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 
-/** Trims and upper-cases a scanned / typed serial number. */
-export function normalizeSerial(raw) {
-  return String(raw ?? '').trim().toUpperCase();
+function cleanReply(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || value.length > MAX_REPLY_LENGTH) return undefined;
+  return value;
 }
 
-/** @returns {string|null} error message, or null when valid */
-export function validateSerial(serial) {
-  if (!serial) return 'Seri numarası boş olamaz';
-  if (!SERIAL_RE.test(serial)) {
-    return 'Seri numarası 3–40 karakter olmalı; sadece harf, rakam, "-" ve "_" içerebilir';
+/** Validates the raw data the runner recorded for one step. undefined = invalid. */
+function cleanStepData(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'object') return undefined;
+  const data = {};
+  if ('reply' in raw) {
+    data.reply = cleanReply(raw.reply);
+    if (data.reply === undefined) return undefined;
   }
-  return null;
+  if ('attempts' in raw) {
+    if (!Number.isInteger(raw.attempts) || raw.attempts < 1 || raw.attempts > 10) return undefined;
+    data.attempts = raw.attempts;
+  }
+  if ('replies' in raw) {
+    if (!Array.isArray(raw.replies) || raw.replies.length > 200) return undefined;
+    data.replies = raw.replies.map(cleanReply);
+    if (data.replies.includes(undefined)) return undefined;
+  }
+  if ('answer' in raw) {
+    if (raw.answer !== null && typeof raw.answer !== 'boolean') return undefined;
+    data.answer = raw.answer;
+  }
+  if ('durationMs' in raw && Number.isFinite(raw.durationMs)) data.durationMs = Math.max(0, Math.round(raw.durationMs));
+  return data;
 }
 
-/**
- * Validates and normalizes a limit table.
- * @returns {{limits: object[], errors: string[]}}
- */
-export function validateLimits(input) {
-  const errors = [];
-  if (!Array.isArray(input) || input.length === 0) {
-    return { limits: [], errors: ['En az bir ölçüm limiti tanımlanmalı'] };
+function cleanDataList(list, max, label, errors) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || list.length > max) {
+    errors.push(`${label} geçersiz`);
+    return [];
   }
-  if (input.length > 32) errors.push('En fazla 32 limit tanımlanabilir');
-
-  const seen = new Set();
-  const limits = input.map((raw, i) => {
-    const row = i + 1;
-    const key = String(raw?.key ?? '').trim();
-    const name = String(raw?.name ?? '').trim() || key;
-    const unit = String(raw?.unit ?? '').trim();
-    const min = typeof raw?.min === 'string' && raw.min.trim() !== '' ? Number(raw.min) : raw?.min;
-    const max = typeof raw?.max === 'string' && raw.max.trim() !== '' ? Number(raw.max) : raw?.max;
-
-    if (!key) errors.push(`Satır ${row}: anahtar boş olamaz`);
-    else if (key.length > 32 || /[,;=:\s]/.test(key)) errors.push(`Satır ${row}: geçersiz anahtar "${key}"`);
-    else if (seen.has(key)) errors.push(`Satır ${row}: "${key}" anahtarı tekrar ediyor`);
-    seen.add(key);
-
-    if (!isFiniteNumber(min)) errors.push(`Satır ${row}: minimum sayı olmalı`);
-    if (!isFiniteNumber(max)) errors.push(`Satır ${row}: maksimum sayı olmalı`);
-    if (isFiniteNumber(min) && isFiniteNumber(max) && min > max) {
-      errors.push(`Satır ${row}: minimum, maksimumdan büyük olamaz`);
-    }
-    return { key, name: name.slice(0, 64), unit: unit.slice(0, 16), min, max };
+  return list.map((item, i) => {
+    const data = cleanStepData(item);
+    if (data === undefined) errors.push(`${label} ${i + 1}: adım verisi geçersiz`);
+    return data ?? null;
   });
-  return { limits, errors };
-}
-
-/** Number formatting that keeps limits readable (5.1 → "5.10" when the limit has 2 decimals). */
-export function formatValue(value, digits = 3) {
-  if (!isFiniteNumber(value)) return '—';
-  return Number(value.toFixed(digits)).toString();
 }
 
 /**
- * Turns collected samples into a PASS / FAIL / ERROR verdict.
+ * Validates a finished run sent by the browser and evaluates it against the exact
+ * recipe revision it was run with. Used by server.js (and the browser-only store)
+ * so stored verdicts never depend on client-side logic.
  *
- * - A measurement FAILs when the mean of its samples is outside [min, max] (inclusive).
- * - A measurement is MISSING when fewer valid samples than required were collected.
- * - The test FAILs if any measurement failed (the board is known bad), otherwise it is
- *   an ERROR when data is missing or the run was aborted, otherwise PASS.
- *
- * @param {Record<string, number[]>} samples valid numeric samples per limit key
- * @param {object[]} limits validated limits
- * @param {{sampleCount: number, error?: string|null}} options
- */
-export function evaluateTest(samples, limits, { sampleCount, error = null }) {
-  const measurements = limits.map((limit) => {
-    const values = (samples?.[limit.key] ?? []).filter(isFiniteNumber);
-    const value = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-    let status;
-    if (values.length < sampleCount) status = 'MISSING';
-    else if (value < limit.min || value > limit.max) status = 'FAIL';
-    else status = 'PASS';
-    return { ...limit, value, count: values.length, status };
-  });
-
-  const failed = measurements.filter((m) => m.status === 'FAIL');
-  const missing = measurements.filter((m) => m.status === 'MISSING');
-  let result;
-  let reason = null;
-
-  if (failed.length) {
-    result = 'FAIL';
-    reason = failed
-      .map((m) => {
-        const unit = m.unit ? ` ${m.unit}` : '';
-        const bound = m.value > m.max ? `> ${formatValue(m.max)}` : `< ${formatValue(m.min)}`;
-        return `${m.name} limit dışı (${formatValue(m.value)}${unit} ${bound}${unit})`;
-      })
-      .join('; ');
-  } else if (error || missing.length) {
-    result = 'ERROR';
-    reason = error || `Eksik ölçüm: ${missing.map((m) => `${m.name} (${m.count}/${sampleCount})`).join(', ')}`;
-  } else {
-    result = 'PASS';
-  }
-
-  return { result, reason, measurements };
-}
-
-/**
- * Validates a finished test run sent by the browser and evaluates it.
- * Used by server.js so stored verdicts never depend on client-side logic.
+ * @param {object} body {serial, operator, productCode, recipeRevision, startedAt, finishedAt, steps, teardown, error}
+ * @param {object|null} product the product revision referenced by the body
  * @returns {{errors: string[], value?: object}}
  */
-export function prepareTestRecord(body) {
+export function prepareTestRecord(body, product) {
   const errors = [];
+  if (!product) return { errors: ['Ürün / reçete revizyonu bulunamadı'] };
+
   const serial = normalizeSerial(body?.serial);
-  const serialError = validateSerial(serial);
+  const serialError = validateSerial(serial, product.serialMask);
   if (serialError) errors.push(serialError);
 
   const operator = String(body?.operator ?? '').trim().slice(0, 64);
-  const sampleCount = Number(body?.sampleCount);
-  if (!Number.isInteger(sampleCount) || sampleCount < 1 || sampleCount > MAX_SAMPLE_COUNT) {
-    errors.push(`Örnek sayısı 1–${MAX_SAMPLE_COUNT} arasında olmalı`);
-  }
   if (!isIsoDate(body?.startedAt) || !isIsoDate(body?.finishedAt)) {
     errors.push('Başlangıç / bitiş zamanı geçersiz');
   } else if (Date.parse(body.finishedAt) < Date.parse(body.startedAt)) {
     errors.push('Bitiş zamanı başlangıçtan önce olamaz');
   }
 
-  const { limits, errors: limitErrors } = validateLimits(body?.limits);
-  errors.push(...limitErrors);
-
-  const samples = {};
-  const rawSamples = body?.samples && typeof body.samples === 'object' ? body.samples : {};
-  for (const limit of limits) {
-    const list = rawSamples[limit.key];
-    if (list === undefined) {
-      samples[limit.key] = [];
-    } else if (!Array.isArray(list) || list.length > 1000 || !list.every(isFiniteNumber)) {
-      errors.push(`"${limit.key}" için ölçüm verisi geçersiz`);
-    } else {
-      samples[limit.key] = list;
-    }
-  }
-
+  const stepsData = cleanDataList(body?.steps, product.recipe.steps.length, 'Adım', errors);
+  const teardownData = cleanDataList(body?.teardown, product.recipe.teardown.length, 'Teardown', errors);
   const error = body?.error ? String(body.error).slice(0, 200) : null;
   if (errors.length) return { errors };
 
-  const verdict = evaluateTest(samples, limits, { sampleCount, error });
+  const verdict = evaluateRun(product.recipe, stepsData, teardownData, { error });
   return {
     errors,
     value: {
       serial,
       operator,
-      sampleCount,
+      productCode: product.code,
+      productName: product.name,
+      recipeRevision: product.revision,
       startedAt: new Date(body.startedAt).toISOString(),
       finishedAt: new Date(body.finishedAt).toISOString(),
-      limits,
       ...verdict,
     },
   };
@@ -181,20 +106,25 @@ export function resultsToCsv(records) {
   const titles = new Map();
   for (const r of records) {
     for (const m of r.measurements) {
-      if (!titles.has(m.key)) {
-        keys.push(m.key);
-        titles.set(m.key, m.unit ? `${m.name} [${m.unit}]` : m.name);
+      const id = `${m.step ?? ''}:${m.key}`;
+      if (!titles.has(id)) {
+        keys.push(id);
+        titles.set(id, m.unit ? `${m.name} [${m.unit}]` : m.name);
       }
     }
   }
   const header = [
-    'id', 'serial', 'attempt', 'result', 'reason', 'operator', 'started_at', 'finished_at', 'sample_count',
+    'id', 'serial', 'product', 'recipe_revision', 'attempt', 'result', 'failed_step', 'reason', 'operator',
+    'started_at', 'finished_at', 'duration_s',
     ...keys.flatMap((k) => [titles.get(k), `${titles.get(k)} status`]),
   ];
   const rows = records.map((r) => {
-    const byKey = new Map(r.measurements.map((m) => [m.key, m]));
+    const byKey = new Map(r.measurements.map((m) => [`${m.step ?? ''}:${m.key}`, m]));
+    const duration = (Date.parse(r.finishedAt) - Date.parse(r.startedAt)) / 1000;
     return [
-      r.id, r.serial, r.attempt, r.result, r.reason ?? '', r.operator ?? '', r.startedAt, r.finishedAt, r.sampleCount,
+      r.id, r.serial, r.productCode ?? '', r.recipeRevision ?? '', r.attempt, r.result,
+      r.failedStep === null || r.failedStep === undefined ? '' : r.failedStep + 1,
+      r.reason ?? '', r.operator ?? '', r.startedAt, r.finishedAt, Number.isFinite(duration) ? duration.toFixed(1) : '',
       ...keys.flatMap((k) => {
         const m = byKey.get(k);
         return m ? [m.value === null ? '' : formatValue(m.value, 4), m.status] : ['', ''];
@@ -204,7 +134,7 @@ export function resultsToCsv(records) {
   return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
 }
 
-/** Pass / fail / error counts and first-pass-independent yield (% of tests that passed). */
+/** Pass / fail / error counts and yield (% of tests that passed). */
 export function summarize(records) {
   const stats = { total: records.length, PASS: 0, FAIL: 0, ERROR: 0 };
   for (const r of records) stats[r.result] += 1;
@@ -214,15 +144,46 @@ export function summarize(records) {
 
 /**
  * Filters records the same way the SQLite query does (used by the browser-only store).
- * @param {{serial?: string, result?: string, from?: string, to?: string}} filters ISO timestamps
+ * @param {{serial?: string, product?: string, result?: string, from?: string, to?: string}} filters ISO timestamps
  */
-export function filterRecords(records, { serial, result, from, to } = {}) {
+export function filterRecords(records, { serial, product, result, from, to } = {}) {
   const needle = normalizeSerial(serial);
   return records.filter(
     (r) =>
       (!needle || r.serial.includes(needle)) &&
+      (!product || r.productCode === product) &&
       (!result || r.result === result) &&
       (!from || r.finishedAt >= from) &&
       (!to || r.finishedAt <= to)
   );
+}
+
+/**
+ * Retest policy for one unit, from its previous results (any order).
+ * Only FAIL counts towards the limit: an ERROR means the station, not the board, had a problem.
+ */
+export function unitStatus(records, maxAttempts) {
+  const attempts = records.length;
+  const failures = records.filter((r) => r.result === 'FAIL').length;
+  const passed = records.some((r) => r.result === 'PASS');
+  const last = [...records].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0] ?? null;
+  return {
+    attempts,
+    failures,
+    passed,
+    lastResult: last?.result ?? null,
+    lastAt: last?.finishedAt ?? null,
+    blocked: !passed && failures >= maxAttempts,
+  };
+}
+
+const LOG_DIRECTIONS = ['TX', 'RX', '--', 'OP'];
+
+/** Keeps the communication log a station sent within sane bounds. */
+export function cleanLog(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .slice(0, 400)
+    .filter((e) => e && Number.isFinite(e.t) && LOG_DIRECTIONS.includes(e.dir) && typeof e.text === 'string')
+    .map((e) => ({ t: Math.max(0, Math.round(e.t)), dir: e.dir, text: e.text.slice(0, MAX_REPLY_LENGTH) }));
 }
