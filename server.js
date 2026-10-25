@@ -1,142 +1,198 @@
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
-const path = require('path');
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+// Optional .env support (Node >= 20.12) without an extra dependency
+try {
+  process.loadEnvFile();
+} catch {
+  // no .env file — fall back to defaults
+}
 
-let receiverPort = null;
-let transmitterPort = null;
-let receiverParser = null;
-let sendInterval = null;
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
+const DEFAULT_BAUD_RATE = Number(process.env.BAUD_RATE) || 9600;
+const BAUD_RATES = [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 74880, 115200, 230400, 250000, 500000, 1000000];
+const MAX_MESSAGE_LENGTH = 1024;
 
-// Statik dosyalar (index.html burada olacak)
-app.use(express.static(path.join(__dirname, 'public')));
+/**
+ * Creates the HTTP + Socket.io server. All browser tabs share the same
+ * serial connection, so state lives here and every event is broadcast.
+ */
+function createServer() {
+  const app = express();
+  const server = http.createServer(app);
+  const io = new Server(server);
 
-// Port listesini istemciye gönder
-app.get('/ports', async (req, res) => {
-  try {
-    const ports = await SerialPort.list();
-    res.json(ports);
-  } catch (error) {
-    console.error('Port listesi alınamadı:', error);
-    res.status(500).json({ error: 'Port listesi alınamadı' });
-  }
-});
+  const state = {
+    receiver: null,
+    transmitter: null,
+    receiverPath: null,
+    transmitterPath: null,
+    baudRate: DEFAULT_BAUD_RATE,
+    connected: false,
+  };
 
-io.on('connection', (socket) => {
-  console.log('📡 Yeni istemci bağlandı');
+  app.use(express.static(path.join(__dirname, 'public')));
 
-  // Kullanıcı port seçtiğinde
-  socket.on('select-ports', ({ receiverPath, transmitterPath }) => {
-    console.log(`🎯 Seçilen portlar -> Receiver: ${receiverPath}, Transmitter: ${transmitterPath}`);
-    openSerialPorts(receiverPath, transmitterPath, socket);
-    socket.emit('connection-status', { connected: true });
+  app.get('/health', (req, res) => {
+    res.json({ status: 'ok', connected: state.connected });
   });
 
-  // Manuel veri gönder
-  socket.on('send-manual', (message) => {
-    if (transmitterPort && transmitterPort.isOpen) {
-      transmitterPort.write(message + '\n', (err) => {
-        if (err) console.error('🛑 Manuel gönderim hatası:', err.message);
-        else console.log('📤 Manuel veri gönderildi:', message);
-      });
-    } else {
-      console.log('⚠️ Verici port açık değil, veri gönderilemedi');
+  app.get('/ports', async (req, res) => {
+    try {
+      res.json(await SerialPort.list());
+    } catch (error) {
+      console.error('Port listesi alınamadı:', error.message);
+      res.status(500).json({ error: 'Port listesi alınamadı' });
     }
   });
 
-  // Manuel bağlantı kesme
-  socket.on('disconnect-ports', () => {
-    console.log('🔌 Manuel bağlantı kesme talebi alındı');
+  function statusPayload(extra = {}) {
+    return {
+      connected: state.connected,
+      receiverPath: state.receiverPath,
+      transmitterPath: state.transmitterPath,
+      baudRate: state.baudRate,
+      ...extra,
+    };
+  }
+
+  function broadcastStatus(extra) {
+    io.emit('connection-status', statusPayload(extra));
+  }
+
+  function closePort(port) {
+    if (!port) return;
+    port.removeAllListeners();
+    // Keep a no-op error handler so a late error can't crash the process
+    port.on('error', () => {});
+    if (port.isOpen) port.close();
+  }
+
+  function closeSerialPorts() {
+    closePort(state.receiver);
+    if (state.transmitter !== state.receiver) closePort(state.transmitter);
+    state.receiver = state.transmitter = null;
+    state.receiverPath = state.transmitterPath = null;
+    state.connected = false;
+  }
+
+  function openPort(portPath, baudRate) {
+    return new Promise((resolve, reject) => {
+      const port = new SerialPort({ path: portPath, baudRate, autoOpen: false });
+      port.open((err) => (err ? reject(err) : resolve(port)));
+    });
+  }
+
+  async function openSerialPorts({ receiverPath, transmitterPath, baudRate }) {
     closeSerialPorts();
-    socket.emit('connection-status', { connected: false });
-  });
 
-  // Otomatik veri gönderimi başlat
-  socket.on('start-auto-send', (message, interval) => {
-    if (sendInterval) clearInterval(sendInterval);
-    if (transmitterPort && transmitterPort.isOpen) {
-      sendInterval = setInterval(() => {
-        transmitterPort.write(message + '\n', (err) => {
-          if (err) console.error('🛑 Otomatik gönderim hatası:', err.message);
-          else console.log('📤 Otomatik veri gönderildi:', message);
-        });
-      }, interval);
-    } else {
-      console.log('⚠️ Verici port açık değil, otomatik gönderim başlatılamadı');
+    const receiver = await openPort(receiverPath, baudRate);
+    let transmitter = receiver;
+    if (transmitterPath && transmitterPath !== receiverPath) {
+      try {
+        transmitter = await openPort(transmitterPath, baudRate);
+      } catch (err) {
+        closePort(receiver);
+        throw err;
+      }
     }
-  });
 
-  // Otomatik gönderimi durdur
-  socket.on('stop-auto-send', () => {
-    if (sendInterval) {
-      clearInterval(sendInterval);
-      sendInterval = null;
-      console.log('⛔ Otomatik gönderim durduruldu');
-    }
-  });
-});
-
-// Serial portları kapatma
-function closeSerialPorts() {
-  if (receiverPort && receiverPort.isOpen) receiverPort.close();
-  if (transmitterPort && transmitterPort.isOpen) transmitterPort.close();
-  receiverPort = transmitterPort = receiverParser = null;
-  if (sendInterval) {
-    clearInterval(sendInterval);
-    sendInterval = null;
-  }
-}
-
-// Serial portları aç
-function openSerialPorts(receiverPath, transmitterPath, socket) {
-  if (!receiverPath) {
-    console.error('❌ Hatalı port yolları');
-    return;
-  }
-
-  closeSerialPorts();
-
-  // Receiver port
-  receiverPort = new SerialPort({ path: receiverPath, baudRate: 9600 });
-  receiverParser = receiverPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
-
-  receiverParser.on('data', (data) => {
-    console.log('📥 Alıcıdan gelen veri:', data);
-    socket.emit('serial-data', data);
-  });
-
-  receiverPort.on('open', () => {
-    console.log('✅ Receiver port açıldı:', receiverPath);
-    socket.emit('connection-status', { connected: true });
-  });
-
-  receiverPort.on('error', (err) => {
-    console.error('❌ Receiver port hatası:', err.message);
-    socket.emit('connection-status', { connected: false, error: err.message });
-  });
-
-  // Transmitter port (sadece seçilmişse)
-  if (transmitterPath) {
-    transmitterPort = new SerialPort({ path: transmitterPath, baudRate: 9600 });
-
-    transmitterPort.on('open', () => {
-      console.log('✅ Transmitter port açıldı:', transmitterPath);
+    // Accept both "\n" and "\r\n" line endings
+    const parser = receiver.pipe(new ReadlineParser({ delimiter: '\n' }));
+    parser.on('data', (line) => {
+      const data = line.replace(/\r$/, '');
+      if (data) io.emit('serial-data', data);
     });
 
-    transmitterPort.on('error', (err) => {
-      console.error('❌ Transmitter port hatası:', err.message);
+    const onLost = (label) => (err) => {
+      if (!state.connected) return;
+      console.error(`❌ ${label} port bağlantısı koptu${err ? ': ' + err.message : ''}`);
+      closeSerialPorts();
+      broadcastStatus({ error: `${label} port bağlantısı koptu` });
+    };
+    receiver.on('close', onLost('Alıcı'));
+    receiver.on('error', onLost('Alıcı'));
+    if (transmitter !== receiver) {
+      transmitter.on('close', onLost('Verici'));
+      transmitter.on('error', onLost('Verici'));
+    }
+
+    Object.assign(state, {
+      receiver,
+      transmitter,
+      receiverPath,
+      transmitterPath: transmitter === receiver ? null : transmitterPath,
+      baudRate,
+      connected: true,
     });
-  } else {
-    console.log('ℹ️ Transmitter port seçilmedi, sadece veri alımı yapılacak');
   }
+
+  io.on('connection', (socket) => {
+    // A newly opened tab immediately sees the shared connection state
+    socket.emit('connection-status', statusPayload());
+
+    socket.on('select-ports', async (options = {}) => {
+      const receiverPath = typeof options.receiverPath === 'string' ? options.receiverPath.trim() : '';
+      const transmitterPath = typeof options.transmitterPath === 'string' ? options.transmitterPath.trim() : '';
+      const baudRate = Number(options.baudRate) || DEFAULT_BAUD_RATE;
+
+      if (!receiverPath) {
+        socket.emit('connection-status', statusPayload({ error: 'Alıcı port seçilmedi' }));
+        return;
+      }
+      if (!BAUD_RATES.includes(baudRate)) {
+        socket.emit('connection-status', statusPayload({ error: `Geçersiz baud rate: ${baudRate}` }));
+        return;
+      }
+
+      try {
+        await openSerialPorts({ receiverPath, transmitterPath, baudRate });
+        console.log(`✅ Bağlandı: ${receiverPath}${transmitterPath ? ' / ' + transmitterPath : ''} @ ${baudRate}`);
+        broadcastStatus();
+      } catch (err) {
+        console.error('❌ Port açılamadı:', err.message);
+        closeSerialPorts();
+        socket.emit('connection-status', statusPayload({ error: `Port açılamadı: ${err.message}` }));
+      }
+    });
+
+    socket.on('disconnect-ports', () => {
+      closeSerialPorts();
+      broadcastStatus();
+    });
+
+    socket.on('send-manual', (message) => {
+      if (typeof message !== 'string' || !message || message.length > MAX_MESSAGE_LENGTH) {
+        socket.emit('send-error', 'Geçersiz mesaj');
+        return;
+      }
+      if (!state.transmitter || !state.transmitter.isOpen) {
+        socket.emit('send-error', 'Port açık değil, veri gönderilemedi');
+        return;
+      }
+      state.transmitter.write(message + '\n', (err) => {
+        if (err) socket.emit('send-error', `Gönderim hatası: ${err.message}`);
+      });
+    });
+  });
+
+  return { app, server, io, closeSerialPorts };
 }
 
-server.listen(3000, () => {
-  console.log('🚀 Sunucu çalışıyor http://localhost:3000');
-});
+if (require.main === module) {
+  const { server, closeSerialPorts } = createServer();
+  server.listen(PORT, HOST, () => {
+    console.log(`🚀 Serial Web Viewer çalışıyor: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  });
+  process.on('SIGINT', () => {
+    closeSerialPorts();
+    process.exit(0);
+  });
+}
+
+module.exports = { createServer, BAUD_RATES };
