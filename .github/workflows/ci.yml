@@ -25,10 +25,35 @@ jobs:
       - run: npm run lint
       - run: npm test
 
+  e2e:
+    # Browser tests: the static (Pages) build with the simulator, and the Node server
+    # on a mock serial port (login, port lock across tabs, lost save, cable unplug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+  firmware:
+    # The fixture firmware must keep compiling with the protocol it implements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: arduino/compile-sketches@v1
+        with:
+          fqbn: arduino:avr:uno
+          sketch-paths: |
+            - examples/arduino/svb_fixture
+
   deploy:
     # Publishes public/ as a static site — the app falls back to Web Serial / Demo mode there
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [test, e2e, firmware]
     runs-on: ubuntu-latest
     permissions:
       pages: write

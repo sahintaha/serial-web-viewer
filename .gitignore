@@ -16,3 +16,7 @@ Thumbs.db
 
 # Production test database
 data/
+
+# Playwright output
+test-results/
+playwright-report/
