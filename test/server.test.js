@@ -501,6 +501,17 @@ describe('administration', () => {
     assert.ok(spoofed.headers.get('content-security-policy').includes('connect-src'));
   });
 
+  test('stop() shuts down the port, the clients and the HTTP server, and closes the database once', async () => {
+    const own = createServer({ dbPath: ':memory:', station: STATION, log: {} });
+    await new Promise((resolve) => own.server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${own.server.address().port}`;
+    assert.equal((await fetch(`${url}/health`)).status, 200);
+    await own.stop();
+    assert.equal(own.server.listening, false);
+    assert.throws(() => own.db.list({}), /not open/);
+    own.server.emit('close'); // a second 'close' (as during a real shutdown) must not throw
+  });
+
   test('malformed JSON gives a JSON error', async () => {
     const res = await api(op, 'POST', '/api/tests', '{not json');
     assert.equal(res.status, 400);

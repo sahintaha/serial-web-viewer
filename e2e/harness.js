@@ -76,10 +76,7 @@ async function startServer() {
     setupToken: ctx.auth.getSetupToken(),
     async close() {
       clearInterval(watchdog);
-      await ctx.bridge.shutdown();
-      ctx.io.close();
-      ctx.server.closeAllConnections();
-      await new Promise((resolve) => ctx.server.close(resolve));
+      await ctx.stop();
     },
   };
 }

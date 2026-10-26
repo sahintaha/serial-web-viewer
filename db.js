@@ -220,6 +220,7 @@ function openResultsDb(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
   const migratedFrom = migrate(db);
+  let closed = false;
 
   const now = () => new Date().toISOString();
   const transaction = (fn) => {
@@ -826,7 +827,12 @@ function openResultsDb(file) {
     getSessionUser,
     deleteSession,
     backupTo,
-    close: () => db.close(),
+    // Idempotent: the HTTP server can emit 'close' more than once during shutdown
+    close: () => {
+      if (closed) return;
+      closed = true;
+      db.close();
+    },
   };
 }
 

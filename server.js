@@ -93,11 +93,20 @@ function createServer({ dbPath = DEFAULT_DB_PATH, SerialPortImpl = SerialPort, s
 
   server.on('close', () => db.close());
 
-  return { app, server, io, db, bridge, auth, station };
+  /** Closes the serial port, every client connection and the HTTP server; the database follows. */
+  async function stop() {
+    await bridge.shutdown();
+    await new Promise((resolve) => {
+      io.close(() => resolve()); // also closes the HTTP server
+      server.closeAllConnections?.();
+    });
+  }
+
+  return { app, server, io, db, bridge, auth, station, stop };
 }
 
 if (require.main === module) {
-  const { server, io, bridge } = createServer();
+  const { server, stop } = createServer();
   server.listen(PORT, HOST, () => {
     console.log(`Serial Web Viewer çalışıyor: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   });
@@ -109,10 +118,8 @@ if (require.main === module) {
     stopping = true;
     console.log(`${signal} alındı, kapatılıyor…`);
     setTimeout(() => process.exit(1), 5000).unref();
-    await bridge.shutdown();
-    io.close();
-    server.closeAllConnections?.();
-    server.close(() => process.exit(0)); // the server 'close' handler closes the database
+    await stop();
+    process.exit(0);
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
