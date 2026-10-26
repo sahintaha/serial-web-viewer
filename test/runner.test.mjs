@@ -10,9 +10,9 @@ import { SimulatedBoard, faultForSerial } from '../public/js/simulator.js';
 const SENSOR = validateProduct(DEFAULT_PRODUCTS[0]).product;
 const POWER = validateProduct(DEFAULT_PRODUCTS[1]).product;
 
-// Fast timings so the suite stays quick
+// Fast timings so the suite stays quick; reply timeouts keep a margin for a loaded CI machine
 function fast(product, { heartbeatMs = 0 } = {}) {
-  const tune = (s) => ({ ...s, ...(s.ms ? { ms: 1 } : {}), ...(s.timeoutMs ? { timeoutMs: 40 } : {}), ...(s.intervalMs ? { intervalMs: 1 } : {}) });
+  const tune = (s) => ({ ...s, ...(s.ms ? { ms: 1 } : {}), ...(s.timeoutMs ? { timeoutMs: 150 } : {}), ...(s.intervalMs ? { intervalMs: 1 } : {}) });
   return {
     ...product,
     heartbeatMs,
@@ -252,20 +252,26 @@ test('without the station the board watchdog cuts the supply', () => {
 });
 
 test('heartbeats keep the board powered through a long operator question', async () => {
-  for (const [heartbeatMs, expectPowered] of [[40, true], [0, false]]) {
+  // Timings leave room for a loaded CI machine: replies may take far longer than 40 ms there,
+  // and a heartbeat timer may fire late; the watchdog must still clearly trip without heartbeats.
+  for (const [heartbeatMs, expectPowered] of [[50, true], [0, false]]) {
     const board = new SimulatedBoard();
     board.setMode('none');
-    board.watchdogMs = 150;
+    board.watchdogMs = 300;
     const tickTimer = setInterval(() => board.tick(), 10);
+    const product = fast(SENSOR, { heartbeatMs });
+    const patient = (s) => (s.timeoutMs ? { ...s, timeoutMs: 500 } : s);
+    product.recipe = { ...product.recipe, steps: product.recipe.steps.map(patient), teardown: product.recipe.teardown.map(patient) };
     let poweredDuringQuestion;
-    const r = await run(fast(SENSOR, { heartbeatMs }), GOOD, board, {
+    const r = await run(product, GOOD, board, {
       answer: async (b) => {
-        await sleep(400);
+        await sleep(900);
         poweredDuringQuestion = b.powered;
         return true;
       },
     });
     clearInterval(tickTimer);
+    assert.notEqual(poweredDuringQuestion, undefined, `heartbeat ${heartbeatMs}: the run never reached the question (${r.reason})`);
     assert.equal(poweredDuringQuestion, expectPowered, `heartbeat ${heartbeatMs}`);
     assert.equal(r.safety.state, 'SAFE');
     // Heartbeats are logged as counting lines, not one line per PING. The 400 ms question gives
