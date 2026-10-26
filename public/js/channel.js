@@ -207,6 +207,15 @@ export class CommandChannel {
     this.heartbeat = null;
   }
 
+  /**
+   * Best-effort write that bypasses the queue and the lock — only for the page being
+   * closed in the middle of a test ("PWR OFF"). The device watchdog is the real safeguard.
+   */
+  emergency(text) {
+    if (this.closed || !this.isConnected()) return;
+    this.write(text).catch(() => {});
+  }
+
   close() {
     this.closed = true;
     this.stopHeartbeat();
