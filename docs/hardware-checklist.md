@@ -36,7 +36,7 @@ a multimeter or scope on the DUT supply, a stopwatch (or scope timing).
 | 3.1 | `PWR ON`, then send nothing | Supply off after `WDT` (default 3 s) ± 100 ms; `STATUS?` → `WDT=1` |
 | 3.2 | Start a test, wait at the LED question for 30 s | Supply stays on (heartbeat `PING` every ~1 s visible in the log) |
 | 3.3 | Start a test, close the browser tab at the LED question | Supply off within `WDT` + 1 s |
-| 3.4 | Start a test, kill the browser process (Task Manager / `kill -9`) during the measurement | Supply off within `WDT` + 1 s |
+| 3.4 | Start a test, kill the browser process (Task Manager / `kill -9`) during the measurement | Supply off within `WDT` + 1 s. Reopen the station: it reports the interrupted test, releases the board and asks for the supply check before the next test |
 | 3.5 | Start a test, unplug the USB cable during the measurement | Supply off within `WDT` + 1 s; the station shows ERROR, safety **UNVERIFIED**, and blocks the next test until acknowledged |
 | 3.6 | Sunucu mode: stop the server (`Ctrl+C` / `docker compose stop`) during a test | Supply off within `WDT` + 1 s |
 | 3.7 | Power-cycle the fixture during a test | Supply off after the restart (1.1) |
@@ -47,7 +47,7 @@ a multimeter or scope on the DUT supply, a stopwatch (or scope timing).
 |---|---|---|
 | 4.1 | Run a good board | PASS, "Kart güvenli durumda: besleme kapalı (doğrulandı)", supply off on the meter |
 | 4.2 | Run a board that fails the measurement | FAIL, teardown steps run, safety SAFE, supply off |
-| 4.3 | Press "Testi durdur" during the measurement | ERROR "durduruldu", teardown runs, safety SAFE, supply off |
+| 4.3 | Press "Testi durdur" during the measurement, and once more inside the LED question | ERROR "durduruldu", teardown runs, safety SAFE, supply off |
 | 4.4 | Answer "Hayır" at the LED question | FAIL, supply off |
 
 ## 5. Ports, tabs and stations

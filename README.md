@@ -229,7 +229,7 @@ npm run lint
 - **Runner + simülatör:** her arıza türü, iptal, beklenmeyen hata, bağlantı kopması, yapışmış röle, watchdog.
 - **Sunucu (SerialPortMock ve gerçek Socket.io istemcileri):** port kilidi, başka sekmeden yazma/bağlantı kesme, hızlı yeniden bağlanma, kaybolan port, roller, rezervasyon yarışı, idempotent kayıt, CSV formül enjeksiyonu, 3000 satırlık akışlı dışa aktarma, şema taşıma, yedek ve geri yükleme.
 - **Tarayıcı deposu (fake-indexeddb):** sekmeler arası rezervasyon, gönderim kuyruğu, depolama hatası, eski veri aktarımı.
-- **Uçtan uca (Playwright):** simülatörle test, çift başlatma, güvenli olmayan kart, test sırasında gönderim kilidi, taslak/yayın, FAIL sınırı ve yeniden açma; sunucu modunda ilk kurulum, sahte seri porttan gerçek kart testi, iki sekme, kaybolan kayıt cevabı + sayfa yenileme, kablo çıkarma, PASS sonrası gerekçe, yetkisiz değişiklik ve denetim kaydı.
+- **Uçtan uca (Playwright):** simülatörle test, çift başlatma, güvenli olmayan kart, test sırasında gönderim kilidi, operatör sorusundan testi durdurma, sayfa kapanınca yarım kalan testin kurtarılması, taslak/yayın, FAIL sınırı ve yeniden açma, örnek veri, ilk ziyarette simülatör; sunucu modunda ilk kurulum, sahte seri porttan gerçek kart testi, tüm ekranların CSP altında hatasız çalışması, iki sekme, kaybolan kayıt cevabı + sayfa yenileme, kablo çıkarma, PASS sonrası gerekçe, yetkisiz değişiklik ve denetim kaydı.
 
 CI her push'ta birim testlerini Node 22 ve 24'te, uçtan uca testleri Chromium'da çalıştırır, fikstür firmware'ini derler ve ancak hepsi geçerse `main`'i GitHub Pages'e yayınlar.
 
