@@ -7,9 +7,9 @@
 # Uncomment the devices section and adjust the paths to your serial devices.
 
 services:
-  serial-web-viewer:
+  pcba-test-station:
     build: .
-    container_name: serial-web-viewer
+    container_name: pcba-test-station
     restart: unless-stopped
     init: true
     # Run as the owner of ./data so the bind mount is writable (id -u / id -g on the host)

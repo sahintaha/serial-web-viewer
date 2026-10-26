@@ -8,6 +8,7 @@
 // - Nothing is ever deleted silently; quota errors are reported to the caller.
 // ============================================
 
+// Named after the project's first name; kept so existing browser data stays readable
 const DB_NAME = 'serial-web-viewer';
 const DB_VERSION = 1;
 const LEGACY_KEYS = { runs: 'productionRuns', products: 'productionProducts' };

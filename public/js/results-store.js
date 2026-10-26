@@ -558,7 +558,7 @@ export class LocalStore {
 
   async exportAll() {
     const [runs, products, events, audit] = await Promise.all([this.allRuns(), this.db.get('kv', 'products'), this.db.getAll('unitEvents'), this.db.getAll('audit')]);
-    download(JSON.stringify({ exportedAt: new Date().toISOString(), runs, products: products?.value ?? null, unitEvents: events, audit }, null, 2), `serial-viewer-yedek-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+    download(JSON.stringify({ exportedAt: new Date().toISOString(), runs, products: products?.value ?? null, unitEvents: events, audit }, null, 2), `pcba-test-station-yedek-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
   }
 
   /** Deletes every simulation record (sample data and simulator tests) with its reservations and unit events. Audited. */

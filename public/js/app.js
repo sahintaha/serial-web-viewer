@@ -1,5 +1,5 @@
 // ============================================
-// SERIAL WEB VIEWER — application shell: session, connection (modes, serial
+// PCBA TEST STATION — application shell: session, connection (modes, serial
 // settings, one command channel per port), simulator panel, views and routing.
 // The monitor and the production test views live in their own modules.
 // ============================================

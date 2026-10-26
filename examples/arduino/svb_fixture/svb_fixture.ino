@@ -1,5 +1,5 @@
 // SVB-100 test firmware — implements docs/protocol.md (protocol v2) so the board
-// can be tested by the Serial Web Viewer production station.
+// can be tested by the PCBA Test Station.
 //
 // Wiring (Arduino Uno / Nano):
 //   D7  → MOSFET / relay that switches the supply of the load under test

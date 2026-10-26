@@ -1,7 +1,7 @@
 {
-  "name": "serial-web-viewer",
+  "name": "pcba-test-station",
   "version": "2.0.0",
-  "description": "Real-time serial port monitor for Arduino and embedded devices — runs in the browser (Web Serial API) or with a Node.js bridge",
+  "description": "Web-based functional test station for assembled PCBs: serial numbers, test recipes, PASS/FAIL, traceability and quality reports. Runs in the browser (Web Serial) or with a Node.js server.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,22 +12,23 @@
     "test:e2e": "playwright test"
   },
   "keywords": [
-    "arduino",
-    "serial",
-    "serialport",
+    "pcba",
+    "test-station",
+    "functional-test",
+    "end-of-line-test",
+    "manufacturing",
+    "traceability",
     "web-serial",
-    "iot",
-    "embedded",
-    "dashboard",
-    "socket.io"
+    "serialport",
+    "embedded"
   ],
   "author": "Taha Şahin (https://github.com/sahintaha)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sahintaha/serial-web-viewer.git"
+    "url": "https://github.com/sahintaha/pcba-test-station.git"
   },
-  "homepage": "https://sahintaha.github.io/serial-web-viewer/",
+  "homepage": "https://sahintaha.github.io/pcba-test-station/",
   "engines": {
     "node": ">=22.13"
   },

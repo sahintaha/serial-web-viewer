@@ -1,4 +1,4 @@
-# Serial Web Viewer
+# PCBA Test Station
 # Serial access needs device mapping, e.g. --device /dev/ttyUSB0 (see docker-compose.yml)
 
 # node:sqlite needs Node 22.13 or newer

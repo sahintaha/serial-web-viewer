@@ -108,7 +108,7 @@ function createServer({ dbPath = DEFAULT_DB_PATH, SerialPortImpl = SerialPort, s
 if (require.main === module) {
   const { server, stop } = createServer();
   server.listen(PORT, HOST, () => {
-    console.log(`Serial Web Viewer çalışıyor: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+    console.log(`PCBA Test Station çalışıyor: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   });
   // Graceful shutdown (Ctrl+C, docker stop): close the serial port, stop accepting
   // connections, let SQLite checkpoint the WAL, then exit. Forced after 5 s.

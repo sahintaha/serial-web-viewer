@@ -852,7 +852,7 @@ function verifyDatabaseFile(file) {
     if (fk.length) errors.push(`${fk.length} yabancı anahtar hatası`);
     version = Number(db.prepare('PRAGMA user_version').get().user_version);
     if (version > LATEST_VERSION) errors.push(`Şema sürümü ${version}, bu uygulama en fazla ${LATEST_VERSION} destekliyor`);
-    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'test_results'").get()) errors.push('test_results tablosu yok; bu bir Serial Web Viewer veritabanı değil');
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'test_results'").get()) errors.push('test_results tablosu yok; bu bir PCBA Test Station veritabanı değil');
   } catch (err) {
     errors.push(err.message);
   } finally {
