@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+test
+e2e
+test-results
+playwright-report
+docs
+examples
+*.md

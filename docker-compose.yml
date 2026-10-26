@@ -1,5 +1,8 @@
 # Usage:
+#   cp .env.example .env      # set STATION_ID, calibration, UID / GID ...
+#   mkdir -p data             # owned by the UID below, or the container cannot write the database
 #   docker compose up -d
+#   docker compose logs       # the first start prints the one-time setup code for the admin account
 #
 # Uncomment the devices section and adjust the paths to your serial devices.
 
@@ -8,11 +11,19 @@ services:
     build: .
     container_name: serial-web-viewer
     restart: unless-stopped
+    init: true
+    # Run as the owner of ./data so the bind mount is writable (id -u / id -g on the host)
+    user: "${UID:-1000}:${GID:-1000}"
     ports:
       # Only reachable from this machine — anyone who can open the UI can write to your devices
       - "127.0.0.1:3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    # These win over .env: inside the container the app always listens on 0.0.0.0:3000
     environment:
-      - BAUD_RATE=9600
+      - HOST=0.0.0.0
+      - PORT=3000
       - DB_PATH=/app/data/serial-viewer.db
     volumes:
       # Production test results survive container restarts
@@ -20,5 +31,7 @@ services:
     # devices:
     #   - /dev/ttyUSB0:/dev/ttyUSB0
     #   - /dev/ttyACM0:/dev/ttyACM0
+    # The serial device belongs to the host's dialout group; use its numeric id
+    # (getent group dialout → usually 20 on Debian/Ubuntu, 986/987 on Arch/Fedora)
     # group_add:
-    #   - dialout
+    #   - "20"
