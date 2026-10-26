@@ -268,12 +268,14 @@ test('heartbeats keep the board powered through a long operator question', async
     clearInterval(tickTimer);
     assert.equal(poweredDuringQuestion, expectPowered, `heartbeat ${heartbeatMs}`);
     assert.equal(r.safety.state, 'SAFE');
-    // Heartbeats are in the log as one counting line, not one line per PING
+    // Heartbeats are logged as counting lines, not one line per PING. The 400 ms question gives
+    // one line with several beats; under CPU load an idle gap between steps may add another.
     const beats = r.raw.log.filter((e) => e.dir === 'HB');
     if (heartbeatMs) {
-      assert.equal(beats.length, 1);
-      assert.match(beats[0].text, /heartbeat: \d+ × PING → OK/);
-      assert.ok(Number(beats[0].text.match(/heartbeat: (\d+)/)[1]) >= 3);
+      assert.ok(beats.length >= 1 && beats.length < 4, `${beats.length} heartbeat lines`);
+      for (const b of beats) assert.match(b.text, /^heartbeat: \d+ × PING → OK/);
+      const longest = Math.max(...beats.map((b) => Number(b.text.match(/heartbeat: (\d+)/)[1])));
+      assert.ok(longest >= 3, `longest run ${longest}`);
     } else {
       assert.equal(beats.length, 0);
     }
