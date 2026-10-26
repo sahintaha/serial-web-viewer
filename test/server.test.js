@@ -9,6 +9,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { createServer } = require('../server');
 const { openResultsDb, verifyDatabaseFile, LATEST_VERSION } = require('../db');
 const { loginAs, request } = require('./helpers');
+const { inlineScriptHashes } = require('../lib/security-headers');
 
 const tempDirs = [];
 function tempFile(prefix, name) {
@@ -484,6 +485,20 @@ describe('administration', () => {
     assert.equal((await call('simulation', 'simulator')).status, 201);
     expired.server.closeAllConnections();
     await new Promise((resolve) => expired.server.close(resolve));
+  });
+
+  test('pages are served with a strict content security policy and security headers', async () => {
+    const res = await fetch(`${baseUrl}/`);
+    const csp = res.headers.get('content-security-policy');
+    const hashes = inlineScriptHashes(fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8'));
+    assert.equal(hashes.length, 2, 'theme script and import map');
+    for (const hash of hashes) assert.ok(csp.includes(hash), hash);
+    assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/);
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(res.headers.get('x-frame-options'), 'DENY');
+    const spoofed = await request(baseUrl, 'GET', '/health');
+    assert.ok(spoofed.headers.get('content-security-policy').includes('connect-src'));
   });
 
   test('malformed JSON gives a JSON error', async () => {

@@ -74,6 +74,27 @@ test('an operator tests a real-port board; the record carries user, station and 
   expect(record.captures.firmware).toBeTruthy();
 });
 
+test('every screen runs under the strict content security policy', async ({ page }) => {
+  const problems = [];
+  page.on('console', (m) => /Content Security Policy|Refused to/i.test(m.text()) && problems.push(m.text()));
+  page.on('pageerror', (err) => problems.push(err.message));
+  await autoAnswer(page);
+  await login(page, app.url, users.operator.username, users.operator.password);
+  await connectFixture(page);
+  await runTest(page, 'SNS-000605');
+  for (const sub of ['reports', 'products', 'history']) {
+    await page.locator(`#pt-subtabs [data-page="${sub}"]`).click();
+    await page.waitForTimeout(400);
+  }
+  await page.locator('#pt-history-body tr[data-index="0"]').click();
+  await expect(page.locator('#pt-detail')).toHaveClass(/show/);
+  await page.keyboard.press('Escape');
+  await page.locator('#view-tabs [data-view="monitor"]').click();
+  await page.locator('[data-action="hex-raw"]').first().click();
+  await page.waitForTimeout(400);
+  expect(problems).toEqual([]);
+});
+
 test('another tab cannot write to or disconnect the port while a test owns it', async ({ context }) => {
   const station = await context.newPage();
   await login(station, app.url, users.operator.username, users.operator.password);

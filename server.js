@@ -8,6 +8,7 @@ const { openResultsDb } = require('./db');
 const { createSerialBridge, BAUD_RATES } = require('./lib/serial-bridge');
 const { createAuth } = require('./lib/auth');
 const { mountApi } = require('./lib/api');
+const { securityHeaders } = require('./lib/security-headers');
 const pkg = require('./package.json');
 
 // Validation, recipe evaluation and reporting are shared with the browser (ES modules)
@@ -58,6 +59,7 @@ function createServer({ dbPath = DEFAULT_DB_PATH, SerialPortImpl = SerialPort, s
   });
 
   app.disable('x-powered-by');
+  app.use(securityHeaders(path.join(__dirname, 'public')));
   app.use(express.static(path.join(__dirname, 'public')));
   app.use(express.json({ limit: '512kb' }));
   app.use(auth.attachUser);

@@ -65,6 +65,7 @@ Protokol, güvenli kapanma ve reçete biçimi: [docs/protocol.md](docs/protocol.
 
 - Varsayılan parola yoktur. İlk açılışta sunucu konsola tek kullanımlık bir **kurulum kodu** yazar; ilk yönetici bu kodla oluşturulur.
 - Operatör adı serbest metin değildir; kayıtlar oturum açan kullanıcının adıyla saklanır. Parolalar scrypt ile, oturumlar yalnızca SHA-256 özetiyle saklanır. REST istekleri ve Socket.io kontrol olayları (bağlan, gönder, kilitle, bağlantıyı kes) her seferinde oturumla yetkilendirilir; çıkış yapan veya devre dışı bırakılan kullanıcı portu hemen kontrol edemez.
+- Sunucu sıkı bir Content-Security-Policy gönderir: betik, stil ve bağlantılar yalnızca sunucunun kendisinden; sayfadaki iki satır içi betik SHA-256 özetiyle izinli, `'unsafe-inline'` yok. Ayrıca `nosniff`, çerçeveye gömme yasağı ve kısıtlı izin politikası.
 - Reçeteler **taslak → yayın** akışıyla değişir. Taslak istasyonu etkilemez; yayınlarken yayındaki revizyonla farkı gösterilir ve "neyi neden değiştirdiniz" notu zorunludur. Yayınlanmış revizyonlar değişmez.
 - Kim, ne zaman, neyi, neden değiştirdi: reçete yayını, arşivleme, kart yeniden açma, PASS sonrası tekrar test, kullanıcı değişiklikleri ve yedekler denetim kaydına yazılır.
 - Her test kaydında istasyon, fikstür, kalibrasyon kimliği ve son tarihi, uygulama sürümü, kartın firmware sürümü, kaynak (gerçek kart / simülasyon) ve bağlantı tipi bulunur. Kalibrasyon süresi dolmuş bir istasyon gerçek kart test edemez.
