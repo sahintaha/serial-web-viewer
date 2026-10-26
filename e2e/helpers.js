@@ -22,7 +22,7 @@ async function runTest(page, serial) {
 async function waitForEnd(page, before) {
   const phase = page.locator('#pt-phase');
   await expect
-    .poll(async () => ((await phase.getAttribute('data-transitions')) !== before ? phase.textContent() : ''), { timeout: 30_000 })
+    .poll(async () => ((await phase.getAttribute('data-transitions')) !== before ? phase.getAttribute('data-phase') : ''), { timeout: 30_000 })
     .toMatch(/^(COMPLETED|ERROR)$/);
 }
 

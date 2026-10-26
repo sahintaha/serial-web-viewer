@@ -23,6 +23,8 @@ import { $, el, fill, badge, ask, promptText, download, RESULT_TEXT, SAFETY_TEXT
 
 const STARTABLE = ['IDLE', 'COMPLETED', 'ERROR'];
 const PHASE_BADGE = { IDLE: 'idle', CHECKING: 'run', RUNNING: 'run', TEARDOWN: 'run', SAVING: 'run', COMPLETED: 'pass', ERROR: 'error' };
+// The operator sees words; the technical state stays in data-phase for scripts and tests
+const PHASE_TEXT = { IDLE: 'Hazır', CHECKING: 'Kontrol', RUNNING: 'Test', TEARDOWN: 'Kapatılıyor', SAVING: 'Kaydediliyor', COMPLETED: 'Bitti', ERROR: 'Hata' };
 const TRANSPORT_OF = { demo: 'simulator', webserial: 'webserial', server: 'server' };
 
 // ---------- rendering helpers (also used by the history detail view) ----------
@@ -170,7 +172,8 @@ export function initStation(ctx) {
     const busy = !STARTABLE.includes(state.phase);
     const { connected, label } = app.getConnection();
     const simulation = app.getTransportKind() === 'demo';
-    $('pt-phase').textContent = state.phase;
+    $('pt-phase').textContent = PHASE_TEXT[state.phase];
+    $('pt-phase').dataset.phase = state.phase;
     $('pt-phase').className = `badge badge-${PHASE_BADGE[state.phase]}`;
     $('pt-sim-badge').classList.toggle('hidden', !simulation);
     $('pt-start').classList.toggle('hidden', busy);
@@ -354,7 +357,7 @@ export function initStation(ctx) {
       if (token !== unitLookup) return; // a newer lookup (the operator kept typing) wins
       $('pt-unit').className = `pt-unit${unit.blocked ? ' text-fail' : ''}`;
       $('pt-unit').textContent = unit.attempts
-        ? `${unit.attempts} deneme · son: ${RESULT_TEXT[unit.lastResult]} · FAIL ${unit.failures}/${product.maxAttempts}${unit.blocked ? ' · onarıma gönderin' : ''}${unit.openReservations ? ' · şu an başka istasyonda' : ''}`
+        ? `${unit.attempts} deneme · son: ${RESULT_TEXT[unit.lastResult]} · FAIL ${unit.failures}/${product.maxAttempts}${unit.errors ? ` · HATA ${unit.errors}/${product.maxErrors}` : ''}${unit.blocked ? ' · onarıma gönderin' : ''}${unit.openReservations ? ' · şu an başka istasyonda' : ''}`
         : 'Yeni kart';
     } catch {
       if (token === unitLookup) $('pt-unit').textContent = '';
@@ -373,7 +376,9 @@ export function initStation(ctx) {
       request: (command, { timeoutMs, signal, id }) =>
         channel().request(command, { timeoutMs, signal, id, owner: run.runId, protocol: run.product.protocol }).then((r) => r.reply),
       newId: () => (run.product.protocol === 'v2' ? channel().newId() : null),
-      confirm: (step, signal) => ask(step.prompt, { title: 'Operatör kontrolü', signal }),
+      // The question covers the page, so it carries its own "stop" action
+      confirm: (step, signal) =>
+        ask(step.prompt, { title: 'Operatör kontrolü', signal, stop: { label: 'Testi durdur', onClick: () => run.controller.abort('Test operatör tarafından durduruldu') } }),
       sleep,
       startHeartbeat: (o) => channel().startHeartbeat({ ...o, owner: run.runId }),
       stopHeartbeat: () => app.getChannel()?.stopHeartbeat(run.runId),

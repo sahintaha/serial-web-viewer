@@ -359,12 +359,12 @@ export class LocalStore {
       const { history, reservations, events } = await this.history(s, normalized, group);
       const products = await this.products(s);
       const entry = products[productCode];
-      const maxAttempts = entry?.published ? entry.revisions[entry.published].definition.maxAttempts : Infinity;
+      const definition = entry?.published ? withDefaults(entry.revisions[entry.published].definition) : null;
       return {
         serial: normalized,
         policyGroup: group,
         ownerProduct: history.ownerProduct,
-        ...unitStatus(history.results, maxAttempts, { reopenedAt: history.reopenedAt }),
+        ...unitStatus(history.results, definition?.maxAttempts ?? Infinity, { reopenedAt: history.reopenedAt, maxErrors: definition?.maxErrors ?? Infinity }),
         openReservations: reservations.length,
         events: events.map((e) => ({ kind: e.kind, policyGroup: e.policyGroup, reason: e.reason, user: LOCAL_USER, at: e.at })),
       };

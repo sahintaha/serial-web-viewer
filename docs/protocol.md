@@ -133,7 +133,8 @@ Step outcomes:
 - **FAIL**: the board is bad (wrong reply, `@ERR …`, value out of limits, operator said no).
 - **ERROR**: the test could not be completed (no reply after all retries, missing or invalid
   samples, cancelled, connection lost, heartbeat lost). An ERROR does not count towards the
-  product's FAIL limit.
+  product's FAIL limit; repeated ERRORs have a limit of their own (`maxErrors`, default 3), so
+  a board that never completes a test (dead, shorted) cannot be retried forever.
 - **SKIPPED**: not executed because an earlier step failed (`stopOnFail`, the default).
 
 ## Known limitations

@@ -1247,6 +1247,7 @@ a {
 }
 
 .confirm-actions .btn { flex: 1; }
+.confirm-stop { margin-top: 14px; text-align: right; }
 .confirm-yes { border-color: var(--pass); color: var(--pass); }
 .confirm-no { border-color: var(--fail); color: var(--fail); }
 

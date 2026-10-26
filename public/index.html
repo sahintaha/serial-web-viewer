@@ -268,7 +268,7 @@
                 <h2 id="steps-title">Adımlar</h2>
                 <span class="panel-sub" id="pt-recipe-info"></span>
               </div>
-              <span class="badge badge-idle" id="pt-phase" title="İstasyon durumu">IDLE</span>
+              <span class="badge badge-idle" id="pt-phase" data-phase="IDLE" title="İstasyon durumu">Hazır</span>
             </div>
             <div class="table-wrap">
               <table class="table steps-table">
@@ -460,6 +460,10 @@
                   <input id="pr-attempts" class="input" type="number" min="1" max="10">
                 </div>
                 <div class="field">
+                  <label class="label" for="pr-max-errors">En fazla HATA</label>
+                  <input id="pr-max-errors" class="input" type="number" min="1" max="20">
+                </div>
+                <div class="field">
                   <label class="label" for="pr-protocol">Protokol</label>
                   <select id="pr-protocol" class="select">
                     <option value="v2">v2 (istek kimlikli)</option>
@@ -471,7 +475,7 @@
                   <input id="pr-heartbeat" class="input" type="number" min="0" max="10000" step="100">
                 </div>
               </div>
-              <p class="hint"><code>#</code> rakam, <code>@</code> harf, <code>?</code> harf veya rakam. Bir kart "En fazla FAIL" kez başarısız olursa, mühendis onarım sonrası yeniden açana kadar test edilmez. v1 yalnızca istek kimliği desteklemeyen eski firmware içindir.</p>
+              <p class="hint"><code>#</code> rakam, <code>@</code> harf, <code>?</code> harf veya rakam. Bir kart "En fazla FAIL" kez başarısız olursa ya da "En fazla HATA" kez test tamamlanamazsa (ör. hiç cevap vermeyen kart), mühendis onarım sonrası yeniden açana kadar test edilmez. v1 yalnızca istek kimliği desteklemeyen eski firmware içindir.</p>
 
               <div class="field">
                 <label class="label" for="pr-recipe">Reçete (JSON)</label>

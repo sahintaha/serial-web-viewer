@@ -237,6 +237,9 @@ export function validateProduct(input) {
 
   const maxAttempts = intInRange(input?.maxAttempts, 3, 1, 10);
   if (Number.isNaN(maxAttempts)) errors.push('maxAttempts 1–10 arasında olmalı');
+  // A board that never completes a test (dead, shorted, wrong firmware) gives ERROR, not FAIL
+  const maxErrors = intInRange(input?.maxErrors, 3, 1, 20);
+  if (Number.isNaN(maxErrors)) errors.push('maxErrors 1–20 arasında olmalı');
 
   // Legacy firmware without request ids must be chosen explicitly, never assumed
   const protocol = input?.protocol ?? 'v2';
@@ -267,6 +270,7 @@ export function validateProduct(input) {
       name,
       serialMask,
       maxAttempts,
+      maxErrors,
       protocol,
       heartbeatMs,
       recipe: { stopOnFail: recipeIn.stopOnFail ?? true, steps, teardown },

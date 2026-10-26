@@ -121,6 +121,19 @@ test('the FAIL limit blocks a board until it is reopened with a reason', async (
   await expect(page.locator('#pt-result')).toContainText('4. deneme');
 });
 
+test('the operator question has its own stop button; the teardown still switches the board off', async ({ page }) => {
+  await page.evaluate(() => (window.__holdQuestions = true));
+  await page.locator('#pt-serial').fill('SNS-000507');
+  const before = await page.locator('#pt-phase').getAttribute('data-transitions');
+  await page.locator('#pt-serial').press('Enter');
+  await page.locator('.modal.show').getByRole('button', { name: 'Testi durdur' }).click();
+  await waitForEnd(page, before);
+  await expect(page.locator('#pt-result')).toContainText('HATA');
+  await expect(page.locator('#pt-result')).toContainText('durduruldu');
+  await expect(page.locator('#pt-safety')).toContainText('güvenli durumda');
+  await expect(page.locator('#pt-phase')).toHaveText('Bitti');
+});
+
 test('a test interrupted by closing the page releases the board when the station opens again', async ({ page, context }) => {
   await page.evaluate(() => (window.__holdQuestions = true));
   await page.locator('#pt-serial').fill('SNS-000508');

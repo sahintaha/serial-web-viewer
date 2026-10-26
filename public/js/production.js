@@ -349,21 +349,27 @@ export const SOURCE_FILTERS = {
  * Retest policy for one unit, from its previous results (any order).
  * Only FAIL counts towards the limit: an ERROR means the station, not the board, had a problem.
  */
-export function unitStatus(records, maxAttempts, { reopenedAt = null } = {}) {
-  // A repair "reopen" starts the FAIL count again; earlier attempts stay in the history
+export function unitStatus(records, maxAttempts, { reopenedAt = null, maxErrors = Infinity } = {}) {
+  // A repair "reopen" starts the FAIL and ERROR counts again; earlier attempts stay in the history
   const counted = reopenedAt ? records.filter((r) => r.finishedAt > reopenedAt) : records;
   const attempts = records.length;
   const failures = counted.filter((r) => r.result === 'FAIL').length;
+  // ERROR usually means the station had a problem, so it does not count as a FAIL; but a
+  // board that never completes a test must not be retried forever: it has its own limit
+  const errors = counted.filter((r) => r.result === 'ERROR').length;
   const passed = counted.some((r) => r.result === 'PASS');
   const last = [...records].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0] ?? null;
+  const blockedBy = passed ? null : failures >= maxAttempts ? 'FAIL' : errors >= maxErrors ? 'ERROR' : null;
   return {
     attempts,
     failures,
+    errors,
     passed,
     reopenedAt,
     lastResult: last?.result ?? null,
     lastAt: last?.finishedAt ?? null,
-    blocked: !passed && failures >= maxAttempts,
+    blocked: blockedBy !== null,
+    blockedBy,
   };
 }
 
@@ -384,7 +390,7 @@ export const policyGroup = (source) => (source === 'simulation' ? 'simulation' :
  *   - a serial number belongs to the first product it was tested as (serials are unique across products)
  *   - only one open reservation per unit; one older than RESERVATION_STALE_MS is abandoned
  *   - FAIL results since the last repair reopen are limited by product.maxAttempts
- *   - ERROR results do not count (the station, not the board, had a problem)
+ *   - ERROR results do not count as FAIL; they have their own limit (product.maxErrors)
  *   - a unit that already passed can be retested only with a written reason
  *
  * @param {object} p
@@ -395,7 +401,7 @@ export const policyGroup = (source) => (source === 'simulation' ? 'simulation' :
  * @returns {{allowed: boolean, code?: string, reason?: string, status: object, abandon: object[]}}
  */
 export function checkRetestPolicy({ history, product, openReservations = [], retestReason, now = Date.now() }) {
-  const status = unitStatus(history.results, product.maxAttempts, { reopenedAt: history.reopenedAt });
+  const status = unitStatus(history.results, product.maxAttempts, { reopenedAt: history.reopenedAt, maxErrors: product.maxErrors ?? Infinity });
   const created = (r) => Date.parse(r.created_at ?? r.createdAt);
   const abandon = openReservations.filter((r) => now - created(r) >= RESERVATION_STALE_MS);
   const deny = (code, reason) => ({ allowed: false, code, reason, status, abandon });
@@ -405,6 +411,12 @@ export function checkRetestPolicy({ history, product, openReservations = [], ret
   }
   if (openReservations.length > abandon.length) {
     return deny('IN_PROGRESS', 'Bu kart şu anda başka bir istasyonda test ediliyor');
+  }
+  if (status.blockedBy === 'ERROR') {
+    return deny(
+      'BLOCKED',
+      `Bu kart ${status.errors} kez HATA verdi, test bir kez bile tamamlanamadı (sınır ${product.maxErrors}). Kartı ve fikstürü kontrol edin; bir mühendis yeniden açmalı.`
+    );
   }
   if (status.blocked) {
     return deny(

@@ -93,7 +93,7 @@ test('another tab cannot write to or disconnect the port while a test owns it', 
   await expect(other.locator('#toast-message')).toContainText('kilitli');
   await other.locator('#connection-button').click();
   await expect(other.locator('#toast-message')).toContainText('kilitli');
-  await expect(station.locator('#pt-phase')).toHaveText('RUNNING');
+  await expect(station.locator('#pt-phase')).toHaveAttribute('data-phase', 'RUNNING');
 
   await station.locator('.modal.show .confirm-yes').click();
   await waitForEnd(station, before);

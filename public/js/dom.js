@@ -116,6 +116,12 @@ export function openModal(modal, { onClose, escape = true, initialFocus } = {}) 
   return close;
 }
 
+function stopButton({ label, onClick }) {
+  const button = el('button', { type: 'button', className: 'btn btn-sm btn-stop', textContent: label });
+  button.addEventListener('click', onClick);
+  return button;
+}
+
 /** Generic dialog container reused by ask() / promptText(). */
 function dialogShell(title) {
   const box = el('div', { className: 'modal-box confirm-box', role: 'document' });
@@ -127,9 +133,11 @@ function dialogShell(title) {
 
 /**
  * Yes / no question. Keyboard: E or Y = yes, H or N = no (barcode-station friendly).
+ * `stop` ({label, onClick}) adds a separate action, e.g. stopping the running test; it
+ * should abort `signal`, which closes the dialog.
  * @returns {Promise<boolean>} rejects with an AbortError when the signal aborts
  */
-export function ask(question, { title = 'Onay', yes = 'Evet', no = 'Hayır', signal, keys = true, danger = false } = {}) {
+export function ask(question, { title = 'Onay', yes = 'Evet', no = 'Hayır', signal, keys = true, danger = false, stop = null } = {}) {
   return new Promise((resolve, reject) => {
     const abort = () => Object.assign(new Error(signal.reason || 'İptal edildi'), { name: 'AbortError' });
     if (signal?.aborted) return reject(abort());
@@ -138,7 +146,13 @@ export function ask(question, { title = 'Onay', yes = 'Evet', no = 'Hayır', sig
     const noBtn = el('button', { type: 'button', className: `btn btn-lg ${danger ? 'confirm-yes' : 'confirm-no'}` }, no, keys ? el('kbd', { textContent: 'H' }) : null);
     box.append(
       el('div', { className: 'panel-head' }, el('h2', { textContent: title })),
-      el('div', { className: 'panel-body' }, el('p', { className: 'confirm-question', textContent: question }), el('div', { className: 'row confirm-actions' }, yesBtn, noBtn))
+      el(
+        'div',
+        { className: 'panel-body' },
+        el('p', { className: 'confirm-question', textContent: question }),
+        el('div', { className: 'row confirm-actions' }, yesBtn, noBtn),
+        stop ? el('div', { className: 'confirm-stop' }, stopButton(stop)) : null
+      )
     );
     const finish = (fn, value) => {
       document.removeEventListener('keydown', onKey, true);

@@ -183,9 +183,14 @@ test('summarize and filterRecords', () => {
   assert.equal(filterRecords(records, { from: '2026-10-25T00:00:00.000Z', to: '2026-10-25T12:00:00.000Z' }).length, 2);
 });
 
-test('unitStatus: only FAIL counts towards the retest limit', () => {
+test('unitStatus: FAIL and ERROR have separate limits', () => {
   const r = (result, h) => ({ result, finishedAt: `2026-10-25T1${h}:00:00.000Z` });
-  assert.deepEqual(unitStatus([], 3), { attempts: 0, failures: 0, passed: false, reopenedAt: null, lastResult: null, lastAt: null, blocked: false });
+  assert.deepEqual(unitStatus([], 3), { attempts: 0, failures: 0, errors: 0, passed: false, reopenedAt: null, lastResult: null, lastAt: null, blocked: false, blockedBy: null });
+  const dead = [r('ERROR', 0), r('ERROR', 1), r('ERROR', 2)];
+  assert.equal(unitStatus(dead, 2, { maxErrors: 3 }).blockedBy, 'ERROR');
+  assert.equal(unitStatus(dead, 2, { maxErrors: 4 }).blocked, false);
+  assert.equal(unitStatus(dead, 2, { maxErrors: 3, reopenedAt: '2026-10-25T11:30:00.000Z' }).blocked, false, 'a reopen restarts the count');
+  assert.equal(unitStatus([...dead, r('PASS', 3)], 2, { maxErrors: 3 }).blocked, false);
   const flaky = unitStatus([r('ERROR', 0), r('ERROR', 1), r('FAIL', 2)], 2);
   assert.equal(flaky.blocked, false);
   assert.equal(flaky.lastResult, 'FAIL');

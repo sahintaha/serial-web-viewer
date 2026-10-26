@@ -278,13 +278,22 @@ describe('reservations, idempotent saves and the retest policy', () => {
     assert.equal(unit.events[0].user, 'engineer kullanıcı');
   });
 
-  test('ERROR results do not count towards the FAIL limit', async () => {
+  test('ERRORs do not count towards the FAIL limit but have a limit of their own', async () => {
     const aborted = GOOD_STEPS.slice(0, 2);
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
       const r = await runTest(op, 'SNS-000888', aborted, { error: 'Test operatör tarafından durduruldu' });
       assert.equal(r.saved.body.result, 'ERROR');
     }
     assert.equal((await runTest(op, 'SNS-000888')).saved.body.result, 'PASS');
+
+    // A board that never completes a test (dead, shorted) is stopped after maxErrors (3)
+    for (let i = 0; i < 3; i += 1) assert.equal((await runTest(op, 'SNS-000889', aborted, { error: 'Cevap yok' })).saved.body.result, 'ERROR');
+    const blocked = await runTest(op, 'SNS-000889');
+    assert.equal(blocked.reserve.body.code, 'BLOCKED');
+    assert.match(blocked.reserve.body.errors[0], /3 kez HATA/);
+    const unit = (await api(op, 'GET', '/api/units/SNS-000889?product=SVB-100&source=simulation')).body;
+    assert.equal(unit.errors, 3);
+    assert.equal(unit.blockedBy, 'ERROR');
   });
 
   test('retesting a passed unit needs a reason, which is recorded', async () => {

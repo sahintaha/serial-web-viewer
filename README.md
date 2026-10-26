@@ -76,8 +76,9 @@ Protokol, güvenli kapanma ve reçete biçimi: [docs/protocol.md](docs/protocol.
 | Kart hiç test edilmemiş | Test edilir. |
 | Kart daha önce **PASS** aldı | Tekrar test için gerekçe istenir; gerekçe kayda ve denetim kaydına yazılır. |
 | Kart son yeniden açılıştan beri ürünün "En fazla FAIL" sayısı kadar **FAIL** aldı | Test edilmez, onarıma yönlendirilir. Mühendis onarım gerekçesiyle yeniden açınca sayaç sıfırlanır; eski kayıtlar silinmez. |
-| **HATA** sonuçları | FAIL sınırına sayılmaz (sorun istasyondadır). |
-| Kart şu anda başka bir istasyonda testte | Reddedilir. 30 dakikadan eski, bitmemiş rezervasyonlar terk edilmiş sayılır. |
+| **HATA** sonuçları | FAIL sınırına sayılmaz (sorun genellikle istasyondadır), ama kendi sınırı vardır: "En fazla HATA" (varsayılan 3) kez tamamlanamayan kart da onarıma yönlendirilir. Hiç cevap vermeyen ölü bir kart böylece sonsuza kadar tekrar test edilemez. |
+| Kart şu anda başka bir istasyonda testte | Reddedilir; mesaj kimin, hangi istasyonda, ne zamandan beri test ettiğini söyler. 30 dakikadan eski, bitmemiş rezervasyonlar terk edilmiş sayılır. |
+| Test yarıda kaldı (sekme kapandı, tarayıcı çöktü) | İstasyon tekrar açılınca yarım kalan testin rezervasyonunu kendisi kapatır, sonucu kaydedilmemiş sayar ve operatör kartı kontrol ettiğini onaylamadan yeni teste izin vermez. Başka bir yerde yarım kalan test için sahibi veya bir mühendis "Yarım kalan testi kapat" diyebilir; denetim kaydına yazılır. |
 | Seri numarası başka bir ürüne ait | Reddedilir (bir seri numarası tek ürüne aittir). |
 | Reçete test başlarken güncellendi | Test başlamaz, istasyon yeni revizyonu yükler. Çalışan test başladığı revizyonla biter. |
 | **Simülasyon** testleri | Ayrı tutulur: gerçek kartların deneme sayısını, FAIL sınırını ve üretim raporlarını etkilemez. |

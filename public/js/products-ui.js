@@ -10,13 +10,14 @@ import { $, el, ask, promptText, download, formatDateTime, diffLines, renderDiff
 
 const TYPE_TEXT = { command: 'komut', measure: 'ölçüm', delay: 'bekle', confirm: 'operatör' };
 const REV_STATUS = { draft: 'taslak', published: 'yayında', superseded: 'eski' };
-const FIELDS = ['pr-code', 'pr-name', 'pr-mask', 'pr-attempts', 'pr-protocol', 'pr-heartbeat', 'pr-recipe'];
+const FIELDS = ['pr-code', 'pr-name', 'pr-mask', 'pr-attempts', 'pr-max-errors', 'pr-protocol', 'pr-heartbeat', 'pr-recipe'];
 
 const NEW_TEMPLATE = {
   code: '',
   name: '',
   serialMask: 'ABC-######',
   maxAttempts: 3,
+  maxErrors: 3,
   protocol: 'v2',
   heartbeatMs: 1000,
   recipe: {
@@ -35,7 +36,16 @@ const NEW_TEMPLATE = {
   },
 };
 
-const definitionOf = (p) => ({ code: p.code, name: p.name, serialMask: p.serialMask, maxAttempts: p.maxAttempts, protocol: p.protocol, heartbeatMs: p.heartbeatMs, recipe: p.recipe });
+const definitionOf = (p) => ({
+  code: p.code,
+  name: p.name,
+  serialMask: p.serialMask,
+  maxAttempts: p.maxAttempts,
+  maxErrors: p.maxErrors,
+  protocol: p.protocol,
+  heartbeatMs: p.heartbeatMs,
+  recipe: p.recipe,
+});
 const pretty = (def) => JSON.stringify(def, null, 2);
 
 /**
@@ -119,6 +129,7 @@ export function initProducts(ctx) {
     $('pr-name').value = def.name;
     $('pr-mask').value = def.serialMask;
     $('pr-attempts').value = def.maxAttempts;
+    $('pr-max-errors').value = def.maxErrors ?? 3;
     $('pr-protocol').value = def.protocol ?? 'v2';
     $('pr-heartbeat').value = def.heartbeatMs ?? 0;
     $('pr-recipe').value = JSON.stringify(def.recipe, null, 2);
@@ -147,6 +158,7 @@ export function initProducts(ctx) {
       name: $('pr-name').value,
       serialMask: $('pr-mask').value,
       maxAttempts: $('pr-attempts').value,
+      maxErrors: $('pr-max-errors').value,
       protocol: $('pr-protocol').value,
       heartbeatMs: $('pr-heartbeat').value === '' ? undefined : Number($('pr-heartbeat').value),
       recipe,
