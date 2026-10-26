@@ -10,6 +10,7 @@ import { initHistory } from './history-ui.js';
 import { initReports } from './reports-ui.js';
 import { initProducts } from './products-ui.js';
 import { hasRole } from './auth-ui.js';
+import { generateSampleData } from './demo-data.js';
 import { $, ask, promptText } from './dom.js';
 
 const PAGES = ['station', 'history', 'reports', 'products'];
@@ -139,6 +140,36 @@ export async function initProduction({ store, user, app }) {
     }
   }
   app.showPage = showPage;
+
+  // ---------- sample data (browser-only demo) ----------
+  let generating = false;
+  async function createSampleData() {
+    if (store.kind !== 'local' || generating) return;
+    generating = true;
+    const buttons = () => document.querySelectorAll('[data-action="sample-data"]');
+    const labels = new Map([...buttons()].map((b) => [b, b.textContent]));
+    buttons().forEach((b) => (b.disabled = true));
+    try {
+      const result = await generateSampleData(store, {
+        onProgress: (done, total) => buttons().forEach((b) => (b.textContent = `Oluşturuluyor… ${Math.round((done / total) * 100)}%`)),
+      });
+      app.showToast(`${result.runs} örnek test oluşturuldu (${result.boards} kart, simülasyon)`, 'success');
+      history.useSource('simulation');
+      reports.useSource('simulation');
+      await showPage('reports');
+    } catch (err) {
+      app.showToast(`Örnek veri oluşturulamadı: ${err.message}`);
+    } finally {
+      generating = false;
+      buttons().forEach((b) => {
+        b.disabled = false;
+        if (labels.has(b)) b.textContent = labels.get(b);
+      });
+    }
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="sample-data"]')) createSampleData();
+  });
 
   $('pt-subtabs').addEventListener('click', (e) => {
     const tab = e.target.closest('.subtab');

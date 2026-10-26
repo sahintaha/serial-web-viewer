@@ -153,3 +153,32 @@ test('a test interrupted by closing the page releases the board when the station
   await runTest(next, 'SNS-000508');
   await expect(next.locator('#pt-result')).toContainText('PASS');
 });
+
+test('a first visit without ?demo opens on the simulator, with live data', async ({ browser }) => {
+  const context = await browser.newContext();
+  const visitor = await context.newPage();
+  await visitor.goto(`${site.url}/`);
+  await expect(visitor.locator('#mode-selector [data-mode="demo"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(visitor.locator('#connection-status')).toContainText('Simülatör');
+  await context.close();
+});
+
+test('sample data fills history and reports in seconds and can be deleted again', async ({ page }) => {
+  await page.locator('#pt-subtabs [data-page="reports"]').click();
+  await page.locator('#rp-products [data-action="sample-data"]').click();
+  await expect(page.locator('#rp-products tr')).toHaveCount(2, { timeout: 60_000 }); // SVB-100 and SVB-200
+  await expect(page.locator('#rp-source')).toHaveValue('simulation');
+  await expect(page.locator('#rp-stats')).toContainText('Cpk');
+  await expect(page.locator('#rp-stats')).not.toContainText('koşullar sağlanmıyor');
+
+  await page.locator('#pt-subtabs [data-page="history"]').click();
+  await expect(page.locator('#pt-filter-source')).toHaveValue('simulation');
+  const total = Number(await page.locator('#pt-stats .pt-stat strong').first().textContent());
+  expect(total).toBeGreaterThan(150);
+  await expect(page.locator('#pt-history-body tr').first()).toContainText('simülasyon');
+
+  await page.evaluate(() => (window.__holdQuestions = true)); // the auto-answer would pick the safe "Vazgeç"
+  await page.locator('#pt-sample-delete').click();
+  await page.locator('.modal.show').getByRole('button', { name: 'Sil' }).click();
+  await expect(page.locator('#pt-stats .pt-stat strong').first()).toHaveText('0');
+});

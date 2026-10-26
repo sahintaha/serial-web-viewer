@@ -561,6 +561,18 @@ export class LocalStore {
     download(JSON.stringify({ exportedAt: new Date().toISOString(), runs, products: products?.value ?? null, unitEvents: events, audit }, null, 2), `serial-viewer-yedek-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
   }
 
+  /** Deletes every simulation record (sample data and simulator tests) with its reservations and unit events. Audited. */
+  async deleteSimulationRuns() {
+    return this.db.tx(['runs', 'reservations', 'unitEvents', 'audit'], 'readwrite', async (s) => {
+      const runs = (await promisify(s.runs.getAll())).filter((r) => r.source === 'simulation');
+      for (const r of runs) await promisify(s.runs.delete(r.id));
+      for (const r of (await promisify(s.reservations.getAll())).filter((x) => x.source === 'simulation')) await promisify(s.reservations.delete(r.runId));
+      for (const e of (await promisify(s.unitEvents.getAll())).filter((x) => x.policyGroup === 'simulation')) await promisify(s.unitEvents.delete(e.id));
+      await this.addAudit(s, 'runs.delete', 'runs', null, { source: 'simulation', count: runs.length });
+      return runs.length;
+    });
+  }
+
   /** Explicit clean-up the user asked for (after exporting): deletes runs finished before `before`. */
   async deleteRunsBefore(before) {
     return this.db.tx(['runs', 'audit'], 'readwrite', async (s) => {

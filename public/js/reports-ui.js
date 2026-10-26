@@ -67,9 +67,17 @@ export function initReports({ store, app }) {
               ...[p.attemptYield, p.fpy, p.finalYield].map((v) => el('td', { className: 'num', textContent: pct(v) }))
             )
           )
-        : [el('tr', { className: 'table-empty' }, el('td', { colSpan: 10, textContent: $('rp-source').value === 'simulation' || $('rp-source').value === 'all' ? 'Bu filtreyle test yok' : 'Bu filtreyle üretim testi yok. Simülatörle yapılan testler için Kaynak: Simülasyon seçin.' }))])
+        : [el('tr', { className: 'table-empty' }, el('td', { colSpan: 10 }, emptyText(), store.kind === 'local' ? sampleButton() : null))])
     );
   }
+
+  function emptyText() {
+    const simulation = ['simulation', 'all'].includes($('rp-source').value);
+    return simulation ? 'Bu filtreyle test yok. ' : 'Bu filtreyle üretim testi yok. Simülatörle yapılan testler için Kaynak: Simülasyon seçin. ';
+  }
+
+  // Browser-only demo: two weeks of simulated production in a few seconds (see demo-data.js)
+  const sampleButton = () => el('button', { type: 'button', className: 'btn btn-sm', dataset: { action: 'sample-data' }, textContent: 'Örnek veri oluştur (≈250 simülasyon testi, son 14 gün)' });
 
   function renderDaily() {
     $('rp-daily-zone').textContent = report.timeZone ? `Günler yerel saate göre (${report.timeZone})` : '';
@@ -169,6 +177,9 @@ export function initReports({ store, app }) {
 
   return {
     refresh,
+    useSource(source) {
+      $('rp-source').value = source;
+    },
     onTheme() {
       if (!report) return;
       renderDaily();

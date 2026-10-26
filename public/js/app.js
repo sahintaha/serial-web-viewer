@@ -372,7 +372,10 @@ async function init() {
 
   const params = new URLSearchParams(location.search);
   const saved = storage.get('mode', null);
-  const preferred = params.has('demo') ? 'demo' : state.available[saved] ? saved : state.available.server ? 'server' : state.available.webserial ? 'webserial' : 'demo';
+  // A first visit to the browser-only site (no server, nothing chosen yet) starts on the
+  // simulator, so there is something to see without hardware; a saved choice is kept
+  const firstVisit = saved === null && !state.available.server;
+  const preferred = params.has('demo') || firstVisit ? 'demo' : state.available[saved] ? saved : state.available.server ? 'server' : state.available.webserial ? 'webserial' : 'demo';
   setMode(preferred);
   if (!state.available.webserial && !state.available.server) {
     showBanner('Bu tarayıcı Web Serial API desteklemiyor. Gerçek cihaza bağlanmak için Chrome veya Edge kullanın; donanımsız denemek için Simülatör modu.');
@@ -421,7 +424,8 @@ async function init() {
   const { view, page } = parseHash();
   setView(store ? view : 'monitor', page);
   renderConnection();
-  if (params.has('demo')) connect();
+  // On the browser-only site the simulator reconnects by itself; a station server never auto-connects
+  if (params.has('demo') || (!state.available.server && preferred === 'demo')) connect();
 }
 
 init().catch((err) => {

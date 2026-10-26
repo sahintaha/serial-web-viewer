@@ -352,8 +352,31 @@ export function initHistory(ctx) {
     }
   });
 
+  $('pt-sample-delete').addEventListener('click', async () => {
+    const ok = await ask('Bu tarayıcıdaki tüm simülasyon kayıtları (örnek veri ve simülatörle yapılan testler) silinecek. Gerçek kart kayıtlarına dokunulmaz.', {
+      title: 'Simülasyon kayıtlarını sil',
+      yes: 'Sil',
+      no: 'Vazgeç',
+      keys: false,
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const count = await store.deleteSimulationRuns();
+      app.showToast(`${count} simülasyon kaydı silindi`, 'success');
+      refresh(0);
+      renderStorage();
+    } catch (err) {
+      app.showToast(`Silinemedi: ${err.message}`);
+    }
+  });
+
   return {
     refresh: () => refresh(page.offset),
+    useSource(source) {
+      $('pt-filter-source').value = source;
+      sourceTouched = true;
+    },
     renderOutbox,
     renderStorage,
     setProducts(products) {
