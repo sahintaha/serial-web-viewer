@@ -187,6 +187,8 @@ export class LocalStore {
 
   async init() {
     await this.db.open();
+    // Results live only here: ask the browser not to evict them under storage pressure
+    this.db.requestPersistence().catch(() => {});
     await this.db.tx(['kv'], 'readwrite', async (s) => {
       if (!(await promisify(s.kv.get('products')))) await promisify(s.kv.put({ key: 'products', value: seedProducts() }));
     });
