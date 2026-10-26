@@ -1250,6 +1250,22 @@ a {
 
 .confirm-actions .btn { flex: 1; }
 .confirm-stop { margin-top: 14px; text-align: right; }
+
+/* Simulator quick-try buttons on the station */
+.demo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+
+.demo-actions.hidden { display: none; }
+
+/* Demo on a phone: the test area comes first, connection and simulator details below */
+@media (max-width: 1000px) {
+  :root.demo-mode .sidebar { order: 2; }
+}
 .confirm-yes { border-color: var(--pass); color: var(--pass); }
 .confirm-no { border-color: var(--fail); color: var(--fail); }
 

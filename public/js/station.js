@@ -20,12 +20,15 @@
 import { validateSerial, normalizeSerial, evaluateRun, renderCommand, formatValue, EVALUATION_MODES } from './recipe.js';
 import { runTest, sleep } from './runner.js';
 import { $, el, fill, badge, ask, promptText, download, RESULT_TEXT, SAFETY_TEXT } from './dom.js';
+import { faultForSerial, FAULTS } from './simulator.js';
 
 const STARTABLE = ['IDLE', 'COMPLETED', 'ERROR'];
 const PHASE_BADGE = { IDLE: 'idle', CHECKING: 'run', RUNNING: 'run', TEARDOWN: 'run', SAVING: 'run', COMPLETED: 'pass', ERROR: 'error' };
 // The operator sees words; the technical state stays in data-phase for scripts and tests
 const PHASE_TEXT = { IDLE: 'Hazır', CHECKING: 'Kontrol', RUNNING: 'Test', TEARDOWN: 'Kapatılıyor', SAVING: 'Kaydediliyor', COMPLETED: 'Bitti', ERROR: 'Hata' };
 const TRANSPORT_OF = { demo: 'simulator', webserial: 'webserial', server: 'server' };
+// Defects the "faulty board" button cycles through, so each try shows a different catch
+const DEMO_FAULTS = ['overcurrent', 'undervoltage', 'firmware', 'selftest', 'led'];
 
 // ---------- rendering helpers (also used by the history detail view) ----------
 
@@ -181,6 +184,9 @@ export function initStation(ctx) {
     $('pt-cancel').classList.toggle('hidden', state.phase !== 'RUNNING');
     for (const id of ['pt-product', 'pt-serial', 'pt-operator']) $(id).disabled = busy;
     $('pt-operator-field').classList.toggle('hidden', Boolean(user));
+    const quickTry = simulation && /^[A-Z0-9-]*#{6}$/.test(state.product?.serialMask ?? '');
+    $('pt-demo-actions').classList.toggle('hidden', !quickTry);
+    $('pt-demo-actions').querySelectorAll('button').forEach((b) => (b.disabled = busy || state.ackRequired));
 
     const product = state.run?.product ?? state.product;
     if (!product) return;
@@ -618,6 +624,44 @@ export function initStation(ctx) {
     setPhase('COMPLETED');
     $('pt-serial').focus();
   }
+
+  // ---------- simulator quick try ----------
+
+  /**
+   * Next unused demo serial whose simulated board has the wanted defect (the simulator
+   * derives a board's defect from its serial number, like a real batch with bad units).
+   */
+  function demoSerial(fault) {
+    const mask = state.product.serialMask;
+    const prefix = mask.slice(0, mask.indexOf('#'));
+    let n = app.storage.get('demoSerialNext', 700000);
+    let serial;
+    do serial = `${prefix}${String((n += 1) % 1_000_000).padStart(6, '0')}`;
+    while (faultForSerial(serial) !== fault);
+    app.storage.set('demoSerialNext', n);
+    return serial;
+  }
+
+  function quickTry(kind) {
+    if (!STARTABLE.includes(state.phase) || !state.product) return;
+    let fault = 'none';
+    if (kind === 'faulty') {
+      const i = app.storage.get('demoFaultNext', 0) % DEMO_FAULTS.length;
+      app.storage.set('demoFaultNext', i + 1);
+      fault = DEMO_FAULTS[i];
+      app.showToast(`Bu kartta gizli bir arıza var: ${FAULTS[fault].toLowerCase()}. İstasyon yakalayabilecek mi?`, 'success');
+    }
+    app.setSimulatorFault?.('auto');
+    const serial = demoSerial(fault);
+    $('pt-serial').value = serial;
+    start(serial);
+  }
+
+  $('pt-demo-actions').addEventListener('click', (e) => {
+    const kind = e.target.closest('[data-demo]')?.dataset.demo;
+    if (kind === 'reports') ctx.showSampleReports?.();
+    else if (kind) quickTry(kind);
+  });
 
   // ---------- events ----------
 

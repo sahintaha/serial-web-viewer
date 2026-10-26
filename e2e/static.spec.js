@@ -32,8 +32,12 @@ test('a simulator run passes, is stored once and is labelled as simulation', asy
 
   expect(await historyTotal(page)).toBe(1);
   await expect(page.locator('#pt-history-body tr').first()).toContainText('simülasyon');
-  // Simulation is not part of the default (production) report
+  // On the simulator the reports show simulation results; the production view never includes them
   await page.locator('#pt-subtabs [data-page="reports"]').click();
+  await expect(page.locator('#rp-source')).toHaveValue('simulation');
+  await expect(page.locator('#rp-products')).toContainText('SVB-100');
+  await page.locator('#rp-source').selectOption('production');
+  await page.locator('#rp-filters button[type="submit"]').click();
   await expect(page.locator('#rp-products')).toContainText('üretim testi yok');
 });
 
@@ -78,8 +82,11 @@ test('manual and periodic sends stop while a test owns the port', async ({ page 
   await expect(page.locator('#connection-button')).toBeDisabled();
   await expect(page.locator('#mode-selector [data-mode="webserial"]')).toBeDisabled();
 
-  await page.evaluate(() => (window.__holdQuestions = false));
-  await page.locator('.modal.show .confirm-yes').click();
+  // Releasing the hold lets the auto-answer reply; answer here too in case nothing changes on the page
+  await page.evaluate(() => {
+    window.__holdQuestions = false;
+    document.querySelector('.modal.show .confirm-yes')?.click();
+  });
   await waitForEnd(page, before);
   await expect(page.locator('#pt-result')).toContainText('PASS');
   await expect(page.locator('#send-input')).toBeEnabled();
@@ -181,4 +188,29 @@ test('sample data fills history and reports in seconds and can be deleted again'
   await page.locator('#pt-sample-delete').click();
   await page.locator('.modal.show').getByRole('button', { name: 'Sil' }).click();
   await expect(page.locator('#pt-stats .pt-stat strong').first()).toHaveText('0');
+});
+
+test('quick-try buttons: a good board passes, a faulty one is caught, sample reports open', async ({ page }) => {
+  const tryBoard = async (name) => {
+    const before = await page.locator('#pt-phase').getAttribute('data-transitions');
+    await page.getByRole('button', { name }).click();
+    await waitForEnd(page, before);
+  };
+  await tryBoard('Sağlam kartı dene');
+  await expect(page.locator('#pt-result')).toContainText('PASS');
+  await tryBoard('Arızalı kartı dene');
+  await expect(page.locator('#pt-result')).toContainText('FAIL');
+  await expect(page.locator('#pt-result')).toContainText('Akım limit dışı');
+
+  await page.getByRole('button', { name: 'Örnek raporları gör' }).click();
+  await expect(page.locator('#rp-products tr')).toHaveCount(2, { timeout: 60_000 });
+  await expect(page.locator('#rp-source')).toHaveValue('simulation');
+});
+
+test('on a phone the demo shows the test area before the connection panel', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const station = await page.locator('#pt-page-station').boundingBox();
+  const sidebar = await page.locator('.sidebar').boundingBox();
+  expect(station.y).toBeLessThan(sidebar.y);
+  await expect(page.getByRole('button', { name: 'Sağlam kartı dene' })).toBeInViewport();
 });

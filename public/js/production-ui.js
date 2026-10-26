@@ -101,7 +101,7 @@ export async function initProduction({ store, user, app }) {
     station.setProduct(products.find((p) => p.code === code));
   }
 
-  const station = initStation({ store, outbox, app, user, onStored: () => page === 'history' && history.refresh(), reloadProducts: () => loadProducts($('pt-product').value), reopenUnit: (serial) => reopenUnit(serial) });
+  const station = initStation({ store, outbox, app, user, showSampleReports: () => showSampleReports(), onStored: () => page === 'history' && history.refresh(), reloadProducts: () => loadProducts($('pt-product').value), reopenUnit: (serial) => reopenUnit(serial) });
   const history = initHistory({ store, outbox, app, canReopen: engineer, retest: retestFromHistory, reopenUnit });
   const reports = initReports({ store, app });
   const productsPage = initProducts({ store, app, canEdit: engineer, productsChanged: (code) => loadProducts(code ?? $('pt-product').value) });
@@ -170,6 +170,15 @@ export async function initProduction({ store, user, app }) {
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-action="sample-data"]')) createSampleData();
   });
+
+  /** "Örnek raporları gör": reuse simulation data if there is enough, otherwise generate it. */
+  async function showSampleReports() {
+    const { total } = await store.query({ source: 'simulation' }, { limit: 1 }).catch(() => ({ total: 0 }));
+    if (store.kind === 'local' && total < 30) return createSampleData();
+    history.useSource('simulation');
+    reports.useSource('simulation');
+    await showPage('reports');
+  }
 
   $('pt-subtabs').addEventListener('click', (e) => {
     const tab = e.target.closest('.subtab');

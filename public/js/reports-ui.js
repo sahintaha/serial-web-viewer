@@ -20,6 +20,7 @@ export function initReports({ store, app }) {
   let report = null;
   let distribution = null;
   let token = 0;
+  let sourceTouched = false;
 
   function readFilters() {
     return { product: $('rp-product').value, source: $('rp-source').value, from: dayBound($('rp-from').value, false), to: dayBound($('rp-to').value, true) };
@@ -39,6 +40,8 @@ export function initReports({ store, app }) {
 
   async function refresh() {
     const mine = ++token;
+    // Until the user picks a source, follow the connection: simulator → simulation results
+    if (!sourceTouched) $('rp-source').value = app.getTransportKind() === 'demo' ? 'simulation' : 'production';
     try {
       const filters = readFilters();
       const r = await store.report(filters);
@@ -173,12 +176,16 @@ export function initReports({ store, app }) {
     e.preventDefault();
     refresh();
   });
+  $('rp-source').addEventListener('change', () => {
+    sourceTouched = true;
+  });
   $('rp-measure').addEventListener('change', () => refreshDistribution().catch((err) => app.showToast(err.message)));
 
   return {
     refresh,
     useSource(source) {
       $('rp-source').value = source;
+      sourceTouched = true;
     },
     onTheme() {
       if (!report) return;

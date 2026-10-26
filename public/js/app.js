@@ -93,6 +93,7 @@ function setMode(mode) {
   if (state.connected || state.connecting || state.testActive || !state.available[mode]) return;
   state.mode = mode;
   storage.set('mode', mode);
+  document.documentElement.classList.toggle('demo-mode', mode === 'demo');
   document.querySelectorAll('#mode-selector .seg-item').forEach((btn) => {
     const active = btn.dataset.mode === mode;
     btn.classList.toggle('active', active);
@@ -415,6 +416,13 @@ async function init() {
           renderConnection();
         },
         showPage: () => {},
+        /** Simulator only: makes the board's defect follow the serial number again. */
+        setSimulatorFault: (fault) => {
+          const board = state.mode === 'demo' ? state.transport?.board : null;
+          if (!board) return;
+          board.setMode(fault);
+          $('sim-fault').value = fault;
+        },
       },
     });
   } else {
