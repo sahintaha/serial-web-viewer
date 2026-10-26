@@ -10,7 +10,7 @@
 // Both expose the same methods so the UI does not care which one it talks to.
 // ============================================
 
-import { DEFAULT_PRODUCTS, validateProduct, normalizeSerial, validateSerial } from './recipe.js';
+import { DEFAULT_PRODUCTS, validateProduct, withDefaults, normalizeSerial, validateSerial } from './recipe.js';
 import {
   prepareTestRecord,
   filterRecords,
@@ -154,7 +154,7 @@ function productView(entry, code, revision) {
   const rev = entry.revisions[revision];
   if (!rev) return null;
   return {
-    ...rev.definition,
+    ...withDefaults(rev.definition),
     revision: Number(revision),
     status: rev.status,
     archived: entry.archived,

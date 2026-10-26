@@ -130,6 +130,19 @@ test('data from the earlier localStorage format is imported once, labelled as un
   assert.equal((await store.query({ source: 'simulation' })).total, 0);
 });
 
+test('products from the earlier format get the new defaults when read, stored unchanged', async () => {
+  const old = { code: 'OLD-1', name: 'Eski ürün', serialMask: 'OLD-####', maxAttempts: 3, recipe: { steps: [{ type: 'command', name: 'Ping', send: 'PING', expect: 'OK' }], teardown: [{ type: 'command', name: 'Kapat', send: 'PWR OFF', expect: 'OK' }] } };
+  const storage = new Map([['productionProducts', JSON.stringify({ 'OLD-1': { revision: 1, updatedAt: '2026-10-01T00:00:00.000Z', revisions: { 1: old } } })]]);
+  const legacy = { getItem: (k) => storage.get(k) ?? null, removeItem: (k) => storage.delete(k) };
+  const store = await new LocalStore({ db: freshDb(legacy) }).init();
+  const product = await store.getProduct('OLD-1');
+  assert.equal(product.protocol, 'v2');
+  assert.equal(product.heartbeatMs, 1000);
+  assert.equal(product.recipe.steps[0].send, 'PING');
+  const { revisions } = await store.listRevisions('OLD-1');
+  assert.equal(revisions[0].definition.protocol, undefined, 'the stored revision is not rewritten');
+});
+
 test('the outbox delivers, retries transient errors and keeps rejected runs', async () => {
   const db = await freshDb().open();
   let mode = 'offline';

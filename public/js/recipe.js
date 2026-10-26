@@ -275,6 +275,18 @@ export function validateProduct(input) {
   };
 }
 
+/**
+ * A stored definition with the fields later versions added (protocol, heartbeat,
+ * evaluation mode, …) filled in with their defaults. Used when a revision is read;
+ * the stored revision itself is never rewritten.
+ */
+export function withDefaults(definition) {
+  const { product, errors } = validateProduct(definition);
+  if (!errors.length) return product;
+  const protocol = definition?.protocol ?? 'v2';
+  return { ...definition, protocol, heartbeatMs: definition?.heartbeatMs ?? (protocol === 'v2' ? 1000 : 0) };
+}
+
 // ---------- evaluation ----------
 
 function deviceError(reply) {

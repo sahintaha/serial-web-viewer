@@ -191,6 +191,21 @@ describe('products: drafts, publishing, audit', () => {
     assert.equal((await api(eng, 'GET', '/api/products/TMP-1')).status, 404);
   });
 
+  test('a revision saved by an older version is read with the new defaults, stored unchanged', async () => {
+    const old = { code: 'OLD-1', name: 'Eski ürün', serialMask: 'OLD-####', maxAttempts: 3, recipe: { stopOnFail: true, steps: [{ type: 'command', name: 'Ping', send: 'PING', expect: 'OK' }], teardown: [] } };
+    ctx.db.saveDraft(old, null, null);
+    ctx.db.publish('OLD-1', null, 'eski sürümden kalan revizyon');
+    const { body } = await api(op, 'GET', '/api/products/OLD-1');
+    assert.equal(body.protocol, 'v2');
+    assert.equal(body.heartbeatMs, 1000);
+    assert.equal(body.revision, 1);
+    const listed = (await api(op, 'GET', '/api/products')).body.find((p) => p.code === 'OLD-1');
+    assert.equal(listed.protocol, 'v2');
+    const { revisions } = (await api(eng, 'GET', '/api/products/OLD-1/revisions')).body;
+    assert.equal(revisions[0].definition.protocol, undefined, 'the stored revision is not rewritten');
+    ctx.db.setArchived('OLD-1', true, null, 'test');
+  });
+
   test('archiving needs a reason and hides the product from the station', async () => {
     const definition = { code: 'TMP-2', name: 'Geçici', serialMask: 'TMP-###', recipe: { steps: [{ type: 'command', send: 'PING' }] } };
     await api(eng, 'PUT', '/api/products/TMP-2/draft', { definition });
