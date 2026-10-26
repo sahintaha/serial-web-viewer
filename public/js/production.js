@@ -449,7 +449,7 @@ export function submissionDigestInput(body) {
   return canonicalJson(Object.fromEntries(pick.map((k) => [k, body?.[k]])));
 }
 
-const LOG_DIRECTIONS = ['TX', 'RX', '--', 'OP'];
+const LOG_DIRECTIONS = ['TX', 'RX', '--', 'OP', 'HB'];
 
 /** Keeps the communication log a station sent within sane bounds. */
 export function cleanLog(list) {

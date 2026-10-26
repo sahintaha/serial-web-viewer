@@ -542,7 +542,8 @@ export function initStation(ctx) {
         onProgress(event) {
           if (state.run !== run) return; // a stale callback of an earlier run
           if (event.type === 'log') {
-            state.log.push(event.entry);
+            if (event.replace && state.log.length) state.log[state.log.length - 1] = event.entry; // heartbeat counter
+            else state.log.push(event.entry);
             renderLog($('pt-log'), state.log);
             return;
           }

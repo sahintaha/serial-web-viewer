@@ -8,7 +8,7 @@
 //   io.newId()                                   → request id (protocol v2), reused for retries
 //   io.confirm(step, signal)                     → operator answer (true / false)
 //   io.sleep(ms, signal)
-//   io.startHeartbeat?({intervalMs, onFail}) / io.stopHeartbeat?()
+//   io.startHeartbeat?({intervalMs, onFail, onBeat}) / io.stopHeartbeat?()
 //
 // Guarantees:
 //   - Teardown steps run after every outcome: PASS, FAIL, cancel, lost connection
@@ -56,10 +56,11 @@ const isConnectionLoss = (err) => ['NOT_CONNECTED', 'CLOSED', 'WRITE_FAILED'].in
  * @param {object} options.io see header
  * @param {(event: object) => void} [options.onProgress] {type: 'step', phase, index, status, verdict?, data?} | {type: 'log', entry}
  * @param {AbortSignal} [options.signal] abort with a reason string (operator cancel, lost connection)
+ * @param {() => number} [options.now] clock in ms (injectable for runs on a virtual clock)
  * @returns {Promise<{steps: object[], teardown: object[], error: string|null, log: object[], startedAt: string, finishedAt: string}>}
  */
-export async function runTest({ product, serial, io, onProgress = () => {}, signal }) {
-  const startedAt = new Date();
+export async function runTest({ product, serial, io, onProgress = () => {}, signal, now = Date.now }) {
+  const started = now();
   const ctx = { serial };
   const log = [];
   let logDropped = 0;
@@ -77,11 +78,26 @@ export async function runTest({ product, serial, io, onProgress = () => {}, sign
   const note = (dir, text) => {
     if (log.length >= MAX_LOG_ENTRIES) {
       logDropped += 1;
-      return;
+      return null;
     }
-    const entry = { t: Date.now() - startedAt.getTime(), dir, text };
+    const entry = { t: now() - started, dir, text };
     log.push(entry);
     safeProgress({ type: 'log', entry });
+    return entry;
+  };
+
+  // Heartbeats are logged compactly: consecutive answered PINGs share one line that counts
+  // up (a long operator question cannot flood the log); anything else gets its own line.
+  let beats = null;
+  const onBeat = ({ id, reply, ms }) => {
+    if (reply === 'OK' && beats && log.at(-1) === beats.entry) {
+      beats.count += 1;
+      beats.entry.text = `heartbeat: ${beats.count} × PING → OK (son #${id}, ${ms} ms)`;
+      safeProgress({ type: 'log', entry: beats.entry, replace: true });
+      return;
+    }
+    const entry = note('HB', reply === 'OK' ? `heartbeat: 1 × PING → OK (#${id}, ${ms} ms)` : `heartbeat #${id}: ${reply ?? 'cevap yok'} (${ms} ms)`);
+    beats = reply === 'OK' && entry ? { entry, count: 1 } : null;
   };
 
   async function request(template, timeoutMs, retries, sig) {
@@ -102,7 +118,7 @@ export async function runTest({ product, serial, io, onProgress = () => {}, sign
   }
 
   async function execute(step, sig, { critical = false } = {}) {
-    const started = Date.now();
+    const stepStarted = now();
     let data;
     switch (step.type) {
       case 'delay':
@@ -140,7 +156,7 @@ export async function runTest({ product, serial, io, onProgress = () => {}, sign
       default:
         throw new Error(`Bilinmeyen adım tipi: ${step.type}`);
     }
-    data.durationMs = Date.now() - started;
+    data.durationMs = now() - stepStarted;
     return data;
   }
 
@@ -151,6 +167,7 @@ export async function runTest({ product, serial, io, onProgress = () => {}, sign
     io.startHeartbeat({
       intervalMs: product.heartbeatMs,
       onFail: (reason) => internal.abort(reason),
+      onBeat,
     });
   }
 
@@ -197,14 +214,14 @@ export async function runTest({ product, serial, io, onProgress = () => {}, sign
     safeProgress({ type: 'step', phase: 'teardown', index, status: verdict.status, verdict, data });
   }
 
-  if (logDropped) log.push({ t: Date.now() - startedAt.getTime(), dir: '--', text: `${logDropped} kayıt satırı sınır nedeniyle atlandı` });
+  if (logDropped) log.push({ t: now() - started, dir: '--', text: `${logDropped} kayıt satırı sınır nedeniyle atlandı` });
 
   return {
     steps: stepsData,
     teardown: teardownData,
     error,
     log,
-    startedAt: startedAt.toISOString(),
-    finishedAt: new Date().toISOString(),
+    startedAt: new Date(started).toISOString(),
+    finishedAt: new Date(now()).toISOString(),
   };
 }

@@ -268,5 +268,14 @@ test('heartbeats keep the board powered through a long operator question', async
     clearInterval(tickTimer);
     assert.equal(poweredDuringQuestion, expectPowered, `heartbeat ${heartbeatMs}`);
     assert.equal(r.safety.state, 'SAFE');
+    // Heartbeats are in the log as one counting line, not one line per PING
+    const beats = r.raw.log.filter((e) => e.dir === 'HB');
+    if (heartbeatMs) {
+      assert.equal(beats.length, 1);
+      assert.match(beats[0].text, /heartbeat: \d+ × PING → OK/);
+      assert.ok(Number(beats[0].text.match(/heartbeat: (\d+)/)[1]) >= 3);
+    } else {
+      assert.equal(beats.length, 0);
+    }
   }
 });

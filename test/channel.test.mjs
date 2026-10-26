@@ -119,11 +119,13 @@ test('heartbeat pings an idle line and reports a dead device', async () => {
   const { channel, written } = fakePort();
   let failed = null;
   channel.lastActivity = 0;
-  channel.startHeartbeat({ owner: 'run', intervalMs: 20, timeoutMs: 10, maxMisses: 2, onFail: (r) => (failed = r) });
+  const beats = [];
+  channel.startHeartbeat({ owner: 'run', intervalMs: 20, timeoutMs: 10, maxMisses: 2, onFail: (r) => (failed = r), onBeat: (b) => beats.push(b) });
   channel.lock('run');
   // Wait for the outcome instead of a fixed time, so the test is stable under CPU load
   for (let i = 0; i < 200 && !failed; i += 1) await tick(10);
   channel.stopHeartbeat();
   assert.ok(written.some((l) => l.endsWith(' PING')));
   assert.match(failed, /2 heartbeat/);
+  assert.ok(beats.length >= 2 && beats.every((b) => b.reply === null && /^[0-9A-Z]{4}$/.test(b.id) && b.ms >= 0), 'every heartbeat is reported');
 });

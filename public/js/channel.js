@@ -177,8 +177,9 @@ export class CommandChannel {
   /**
    * Sends "PING" whenever the line has been idle for intervalMs, keeping the
    * device watchdog fed during long waits (operator questions, delays).
+   * onBeat({id, reply, ms}) reports every heartbeat, so the run log can show them.
    */
-  startHeartbeat({ owner, intervalMs, timeoutMs = 500, maxMisses = 3, onFail }) {
+  startHeartbeat({ owner, intervalMs, timeoutMs = 500, maxMisses = 3, onFail, onBeat }) {
     this.stopHeartbeat();
     let misses = 0;
     let busy = false;
@@ -186,7 +187,13 @@ export class CommandChannel {
       if (busy || this.inflight || Date.now() - this.lastActivity < intervalMs) return;
       busy = true;
       try {
-        const { reply } = await this.request('PING', { timeoutMs, owner });
+        const sent = Date.now();
+        const { reply, id } = await this.request('PING', { timeoutMs, owner });
+        try {
+          onBeat?.({ id, reply, ms: Date.now() - sent });
+        } catch {
+          // logging must never stop the heartbeat
+        }
         misses = reply === null ? misses + 1 : 0;
         if (misses >= maxMisses) {
           this.stopHeartbeat();

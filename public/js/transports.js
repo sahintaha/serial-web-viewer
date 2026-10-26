@@ -156,6 +156,10 @@ export class ServerTransport {
     if (this.socket) return;
     if (typeof window.io !== 'function') await loadScript('socket.io/socket.io.js');
     this.socket = window.io({ withCredentials: true });
+    // A reconnected client gets a new server-side socket without its rooms: re-join raw bytes
+    this.socket.on('connect', () => {
+      if (this.rawWanted) this.socket.emit('raw-subscribe', true);
+    });
     this.socket.on('serial-data', (line) => this.handlers.onLine(line));
     this.socket.on('serial-raw', (bytes) => this.handlers.onRaw?.(new Uint8Array(bytes)));
     this.socket.on('serial-overflow', ({ count }) => this.handlers.onOverflow?.(count));
@@ -210,6 +214,7 @@ export class ServerTransport {
   }
 
   subscribeRaw(on) {
+    this.rawWanted = on;
     this.socket?.emit('raw-subscribe', on);
   }
 

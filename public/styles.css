@@ -1174,6 +1174,8 @@ a {
 
 .log-tx .log-dir { color: var(--accent); }
 .log-rx .log-dir { color: var(--pass); }
+.log-hb,
+.log-hb .log-dir { color: var(--text-3); }
 .log-warn { color: var(--warn); }
 .log-op .log-dir { color: var(--text-2); }
 
