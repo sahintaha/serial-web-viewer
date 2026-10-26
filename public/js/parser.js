@@ -128,6 +128,16 @@ export function csvCell(value) {
 }
 
 /**
+ * CSV cell for user-controlled text (serial numbers, reasons, names). Text that a
+ * spreadsheet would run as a formula (= + - @ tab CR) gets a leading apostrophe.
+ * Numeric columns use csvCell, so "-3.2" stays a number.
+ */
+export function csvText(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  return csvCell(/^[=+\-@\t\r]/.test(s) ? `'${s}` : s);
+}
+
+/**
  * Builds a CSV document from recorded rows.
  * @param {{time: string, raw: string, fields: {label: string, raw: string}[]}[]} rows
  */

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_PRODUCTS, validateProduct } from '../public/js/recipe.js';
-import { prepareTestRecord, resultsToCsv, summarize, filterRecords, unitStatus, cleanLog } from '../public/js/production.js';
+import { prepareTestRecord, resultsToCsv, summarize, filterRecords, unitStatus, cleanLog, checkRetestPolicy, canonicalJson, submissionDigestInput, capability } from '../public/js/production.js';
 
 const SENSOR = { ...validateProduct(DEFAULT_PRODUCTS[0]).product, revision: 3 };
 
@@ -78,13 +78,54 @@ test('resultsToCsv: product, revision, failed step and one column pair per measu
   const steps = [...GOOD_STEPS];
   steps[4] = { replies: Array(5).fill('V5.0,I190') };
   const { value } = prepareTestRecord(submission({ steps }), SENSOR);
-  const [header, row] = resultsToCsv([{ id: 7, attempt: 2, ...value }]).split('\n');
+  const [header, row] = resultsToCsv([{ id: 7, attempt: 2, source: 'hardware', transport: 'webserial', ...value }]).split('\n');
   assert.equal(
     header,
-    'id,serial,product,recipe_revision,attempt,result,failed_step,reason,operator,started_at,finished_at,duration_s,' +
-      'Voltaj [V],Voltaj [V] status,Akım [mA],Akım [mA] status'
+    'id,serial,product,recipe_revision,attempt,result,failed_step,reason,operator,source,transport,safety,dut_firmware,' +
+      'retest_reason,station,started_at,finished_at,duration_s,Voltaj [V],Voltaj [V] status,Akım [mA],Akım [mA] status'
   );
-  assert.match(row, /^7,SNS-000142,SVB-100,3,2,FAIL,5,Adım 5 \(Besleme ölçümü\): Akım limit dışı .*,Taha,.*,4\.5,5,PASS,190,FAIL$/);
+  assert.match(row, /^7,SNS-000142,SVB-100,3,2,FAIL,5,Adım 5 \(Besleme ölçümü\): Akım limit dışı .*,Taha,hardware,webserial,SAFE,ID SVB-100 FW1\.4\.2,,,.*,4\.5,5,PASS,190,FAIL$/);
+});
+
+test('retest policy decisions', () => {
+  const product = { code: 'SVB-100', maxAttempts: 2 };
+  const at = (h) => `2026-10-25T1${h}:00:00.000Z`;
+  const decide = (results, { history, ...rest } = {}) =>
+    checkRetestPolicy({ history: { results, reopenedAt: null, ownerProduct: 'SVB-100', ...history }, product, now: Date.parse(at(9)), ...rest });
+
+  assert.equal(decide([]).allowed, true);
+  assert.equal(decide([{ result: 'FAIL', finishedAt: at(0) }, { result: 'FAIL', finishedAt: at(1) }]).code, 'BLOCKED');
+  // A reopen after the failures restarts the count
+  assert.equal(decide([{ result: 'FAIL', finishedAt: at(0) }, { result: 'FAIL', finishedAt: at(1) }], { history: { reopenedAt: at(2) } }).allowed, true);
+  assert.equal(decide([{ result: 'PASS', finishedAt: at(0) }]).code, 'PASSED_NEEDS_REASON');
+  assert.equal(decide([{ result: 'PASS', finishedAt: at(0) }], { retestReason: '  ' }).code, 'PASSED_NEEDS_REASON');
+  assert.equal(decide([{ result: 'PASS', finishedAt: at(0) }], { retestReason: 'İade kontrolü' }).allowed, true);
+  assert.equal(decide([], { history: { ownerProduct: 'SVB-200' } }).code, 'WRONG_PRODUCT');
+  // An open reservation blocks; one older than 30 minutes is abandoned instead
+  const fresh = { created_at: at(9) };
+  const stale = { run_id: 'x', created_at: '2026-10-25T08:00:00.000Z' };
+  assert.equal(decide([], { openReservations: [fresh] }).code, 'IN_PROGRESS');
+  const d = decide([], { openReservations: [stale] });
+  assert.equal(d.allowed, true);
+  assert.deepEqual(d.abandon, [stale]);
+});
+
+test('canonical JSON and the submission digest ignore key order and the log', () => {
+  assert.equal(canonicalJson({ b: 1, a: [2, { d: 3, c: 4 }] }), '{"a":[2,{"c":4,"d":3}],"b":1}');
+  const a = submissionDigestInput({ runId: '1', serial: 'S', steps: [{ reply: 'OK' }], log: [1] });
+  const b = submissionDigestInput({ steps: [{ reply: 'OK' }], serial: 'S', runId: '1', log: [2, 3] });
+  assert.equal(a, b);
+  assert.notEqual(a, submissionDigestInput({ runId: '1', serial: 'S', steps: [{ reply: 'ERR' }] }));
+});
+
+test('capability reports Cpk only with enough data and one set of limits', () => {
+  const values = Array.from({ length: 50 }, (_, i) => 5 + Math.sin(i) * 0.02);
+  const ok = capability(values, { min: 4.9, max: 5.1 });
+  assert.ok(ok.cpk > 1.3, String(ok.cpk));
+  assert.equal(ok.histogram.reduce((a, b) => a + b.count, 0), 50);
+  assert.equal(capability(values.slice(0, 10), { min: 4.9, max: 5.1 }).cpk, null);
+  assert.equal(capability(values, null).cpk, null);
+  assert.equal(capability(Array(40).fill(5), { min: 4.9, max: 5.1 }).cpk, null);
 });
 
 test('summarize and filterRecords', () => {
@@ -104,7 +145,7 @@ test('summarize and filterRecords', () => {
 
 test('unitStatus: only FAIL counts towards the retest limit', () => {
   const r = (result, h) => ({ result, finishedAt: `2026-10-25T1${h}:00:00.000Z` });
-  assert.deepEqual(unitStatus([], 3), { attempts: 0, failures: 0, passed: false, lastResult: null, lastAt: null, blocked: false });
+  assert.deepEqual(unitStatus([], 3), { attempts: 0, failures: 0, passed: false, reopenedAt: null, lastResult: null, lastAt: null, blocked: false });
   const flaky = unitStatus([r('ERROR', 0), r('ERROR', 1), r('FAIL', 2)], 2);
   assert.equal(flaky.blocked, false);
   assert.equal(flaky.lastResult, 'FAIL');

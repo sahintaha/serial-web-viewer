@@ -4,8 +4,9 @@ const assert = require('node:assert/strict');
 const { SerialPortMock } = require('serialport');
 const { io: connectClient } = require('socket.io-client');
 const { createServer } = require('../server');
-const { loginAs } = require('./helpers');
+const { loginAs, request } = require('./helpers');
 
+let ctx;
 let server;
 let bridge;
 let baseUrl;
@@ -42,10 +43,11 @@ function nextEvent(socket, event, predicate = () => true, timeoutMs = 1000) {
 before(async () => {
   SerialPortMock.binding.createPort('/dev/FIXTURE', { echo: false, record: true });
   SerialPortMock.binding.createPort('/dev/OTHER', { echo: false, record: true });
-  ({ server, bridge } = createServer({ dbPath: ':memory:', SerialPortImpl: SerialPortMock, log: {} }));
+  ctx = createServer({ dbPath: ':memory:', SerialPortImpl: SerialPortMock, log: {} });
+  ({ server, bridge } = ctx);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
-  auth = await loginAs(baseUrl, server, 'operator');
+  auth = await loginAs(baseUrl, ctx, 'operator');
 });
 
 beforeEach(async () => {
@@ -182,4 +184,27 @@ test('a port that disappears is reported to all clients', async () => {
   const status = await lost;
   assert.match(status.error, /koptu/);
   assert.equal(bridge.state.connected, false);
+});
+
+test('connections without a valid session are refused', async () => {
+  const socket = connectClient(baseUrl, { transports: ['websocket'], forceNew: true });
+  const err = await new Promise((resolve) => socket.once('connect_error', resolve));
+  socket.disconnect();
+  assert.match(err.message, /Oturum/);
+});
+
+test('logging out takes port control away from an already connected socket', async () => {
+  const other = await loginAs(baseUrl, ctx, 'operator', 'leaving');
+  const socket = connectClient(baseUrl, { transports: ['websocket'], forceNew: true, extraHeaders: { cookie: other.cookie } });
+  await new Promise((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('connect_error', reject);
+  });
+  clients.push(socket);
+  assert.deepEqual(await call(socket, 'select-ports', { receiverPath: '/dev/FIXTURE', baudRate: 9600 }), { ok: true });
+
+  await request(baseUrl, 'POST', '/api/auth/logout', { cookie: other.cookie });
+  assert.deepEqual(await call(socket, 'send-manual', { text: 'PWR ON' }), { ok: false, error: 'Yetki yok' });
+  assert.deepEqual(await call(socket, 'disconnect-ports'), { ok: false, error: 'Yetki yok' });
+  assert.equal(bridge.state.connected, true);
 });
