@@ -120,3 +120,23 @@ test('the FAIL limit blocks a board until it is reopened with a reason', async (
   await expect(page.locator('#pt-result')).toContainText('PASS');
   await expect(page.locator('#pt-result')).toContainText('4. deneme');
 });
+
+test('a test interrupted by closing the page releases the board when the station opens again', async ({ page, context }) => {
+  await page.evaluate(() => (window.__holdQuestions = true));
+  await page.locator('#pt-serial').fill('SNS-000508');
+  await page.locator('#pt-serial').press('Enter');
+  await expect(page.locator('.modal.show .confirm-yes')).toBeVisible({ timeout: 20_000 });
+  await page.close(); // like a crashed tab: no teardown, no result, the reservation stays open
+
+  const next = await context.newPage();
+  await autoAnswer(next);
+  await next.goto(`${site.url}/?demo#production/station`);
+  await expect(next.locator('#pt-result')).toContainText('yarıda kaldı');
+  await expect(next.locator('#pt-safety')).toContainText('doğrulanamadı');
+  await expect(next.locator('#pt-start')).toBeDisabled();
+  await next.getByRole('button', { name: 'Beslemeyi kontrol ettim, kart güvenli' }).click();
+  await expect(next.locator('#connection-status')).toContainText('Simülatör');
+  await next.locator('#sim-fault').selectOption('none');
+  await runTest(next, 'SNS-000508');
+  await expect(next.locator('#pt-result')).toContainText('PASS');
+});

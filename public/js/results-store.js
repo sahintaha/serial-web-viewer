@@ -118,7 +118,7 @@ export class ServerStore {
   unitStatus = (serial, productCode, source) => this.call('GET', `api/units/${encodeURIComponent(serial)}?${toQueryString({ product: productCode, source })}`);
   reopenUnit = (serial, reason, source) => this.call('POST', `api/units/${encodeURIComponent(serial)}/reopen`, { reason, source });
   reserve = (reservation) => this.call('POST', 'api/runs', reservation);
-  abandon = (runId) => this.call('POST', `api/runs/${runId}/abandon`, {}).catch(() => {});
+  abandon = (runId) => this.call('POST', `api/runs/${runId}/abandon`, {});
   saveRun = (submission) => this.call('POST', 'api/tests', submission);
   query = (filters = {}, page = {}) => this.call('GET', `api/tests?${toQueryString({ ...filters, ...page })}`);
   getRun = (id) => this.call('GET', `api/tests/${id}`);
@@ -397,7 +397,11 @@ export class LocalStore {
       const group = policyGroup(r.source);
       const { history, reservations } = await this.history(s, serial, group);
       const verdict = checkRetestPolicy({ history, product, openReservations: reservations.map((x) => ({ ...x, created_at: x.createdAt })), retestReason: r.retestReason });
-      if (!verdict.allowed) throw new StoreError(verdict.reason, { status: 409, code: verdict.code, permanent: true, details: { unit: verdict.status } });
+      if (!verdict.allowed) {
+        const holders = verdict.code === 'IN_PROGRESS' ? reservations.filter((x) => !verdict.abandon.some((s) => s.runId === x.runId)) : [];
+        const details = { unit: verdict.status, reservations: holders.map((x) => ({ runId: x.runId, userId: null, user: LOCAL_USER, station: 'tarayıcı', createdAt: x.createdAt })) };
+        throw new StoreError(verdict.reason, { status: 409, code: verdict.code, permanent: true, details });
+      }
       for (const stale of verdict.abandon) await promisify(s.reservations.put({ ...stale, status: 'abandoned' }));
       await promisify(s.reservations.put({ runId: r.runId, serial, productCode: r.productCode, recipeRevision: entry.published, source: r.source, transport: r.transport, retestReason: r.retestReason ?? null, status: 'open', createdAt: new Date().toISOString() }));
       if (r.retestReason) await this.addAudit(s, 'unit.retest-after-pass', 'unit', serial, { reason: r.retestReason, runId: r.runId });
@@ -406,9 +410,11 @@ export class LocalStore {
   }
 
   async abandon(runId) {
-    await this.db.tx('reservations', 'readwrite', async (s) => {
+    await this.db.tx(['reservations', 'audit'], 'readwrite', async (s) => {
       const r = await promisify(s.reservations.get(runId));
-      if (r?.status === 'open') await promisify(s.reservations.put({ ...r, status: 'abandoned' }));
+      if (r?.status !== 'open') return;
+      await promisify(s.reservations.put({ ...r, status: 'abandoned' }));
+      await this.addAudit(s, 'reservation.abandon', 'unit', r.serial, { runId });
     });
   }
 

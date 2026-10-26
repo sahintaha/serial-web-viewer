@@ -12,6 +12,9 @@
 //   fails, the station refuses new tests until the result has been exported.
 // - When the board could not be confirmed safe, the operator must acknowledge
 //   before the next test.
+// - A run is marked as active (localStorage) and holds a Web Lock while it runs. If the
+//   page dies mid-test, the next load finds the mark without its lock, releases the
+//   reservation and asks the operator to check the board.
 // ============================================
 
 import { validateSerial, normalizeSerial, evaluateRun, renderCommand, formatValue, EVALUATION_MODES } from './recipe.js';
@@ -127,6 +130,8 @@ export function initStation(ctx) {
   const { store, outbox, app, user } = ctx;
   // An unconfirmed unsafe board survives a page reload: the acknowledgement is kept until given
   const ACK_KEY = 'stationSafetyAck';
+  const ACTIVE_KEY = 'stationActiveRuns';
+  const lockName = (runId) => `sv-run-${runId}`;
   const pendingAck = app.storage.get(ACK_KEY, null);
   const state = {
     phase: 'IDLE',
@@ -141,6 +146,11 @@ export function initStation(ctx) {
   let unitLookup = 0;
 
   const sourceNow = () => (app.getTransportKind() === 'demo' ? 'simulation' : 'hardware');
+  const describeHolder = (r) => {
+    const minutes = Math.max(0, Math.round((Date.now() - Date.parse(r.createdAt)) / 60000));
+    const who = user && r.userId === user.id ? 'sizin yarım kalmış testiniz' : r.user ?? 'bilinmeyen kullanıcı';
+    return [who, r.station, `${minutes} dk önce başladı`].filter(Boolean).join(', ');
+  };
   const idleSteps = (product) => ({
     steps: product.recipe.steps.map((s) => ({ ...s, status: 'PENDING', data: null })),
     teardown: product.recipe.teardown.map((s) => ({ ...s, status: 'PENDING', data: null })),
@@ -206,7 +216,8 @@ export function initStation(ctx) {
         el('div', { className: 'pt-result-title', textContent: state.message.title }),
         el('div', { className: 'pt-result-sub', textContent: state.message.serial ?? '' }),
         el('div', { className: 'pt-result-reason', textContent: state.message.text }),
-        state.message.reopen ? reopenButton(state.message.serial) : null
+        state.message.reopen ? reopenButton(state.message.serial) : null,
+        state.message.release ? releaseButton(state.message.serial, state.message.release) : null
       );
       return;
     }
@@ -231,6 +242,35 @@ export function initStation(ctx) {
       el('div', { className: 'pt-result-title muted', textContent: 'HAZIR' }),
       el('div', { className: 'pt-result-sub', textContent: connected ? `${label ?? 'Cihaz'} · seri numarasını okutun` : 'Önce Bağlantı panelinden cihaza bağlanın' })
     );
+  }
+
+  /** Lets the holder of an interrupted reservation (or an engineer) release it. */
+  function releaseButton(serial, reservations) {
+    const canRelease = (r) => !user || r.userId === user.id || ['engineer', 'admin'].includes(user.role);
+    if (!reservations?.length || !reservations.every(canRelease)) return null;
+    const button = el('button', { type: 'button', className: 'btn btn-sm mt-sm', textContent: 'Yarım kalan testi kapat…' });
+    button.addEventListener('click', async () => {
+      const ok = await ask(`${serial} için açık kalan test kapatılacak. Kart şu anda başka bir istasyonda test edilmiyorsa devam edin.`, {
+        title: 'Yarım kalan test',
+        yes: 'Kapat',
+        no: 'Vazgeç',
+        keys: false,
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        for (const r of reservations) await store.abandon(r.runId);
+      } catch (err) {
+        app.showToast(`Kapatılamadı: ${err.message}`);
+        return;
+      }
+      state.message = null;
+      render();
+      app.showToast("Açık test kapatıldı. Başlatmak için Enter'a basın.", 'success');
+      $('pt-serial').value = serial;
+      $('pt-serial').focus();
+    });
+    return button;
   }
 
   function reopenButton(serial) {
@@ -340,6 +380,64 @@ export function initStation(ctx) {
     };
   }
 
+  // ---------- active-run marks (recovery after a crash or reload) ----------
+
+  function markActive(run) {
+    const runs = app.storage.get(ACTIVE_KEY, {}) ?? {};
+    runs[run.runId] = { serial: run.serial, productCode: run.product.code, source: run.source, startedAt: new Date().toISOString() };
+    app.storage.set(ACTIVE_KEY, runs);
+    run.finished = new Promise((resolve) => (run.finish = resolve));
+    navigator.locks?.request(lockName(run.runId), () => run.finished).catch(() => {});
+  }
+
+  function clearActive(run) {
+    const runs = app.storage.get(ACTIVE_KEY, {}) ?? {};
+    delete runs[run.runId];
+    app.storage.set(ACTIVE_KEY, runs);
+    run.finish?.();
+  }
+
+  /**
+   * Runs marked active whose lock is gone belong to a page that died mid-test. Their
+   * reservation is released (unless the result already reached the outbox) and the
+   * board is treated as unverified until the operator has checked it.
+   */
+  async function recoverInterruptedRuns() {
+    const runs = app.storage.get(ACTIVE_KEY, {}) ?? {};
+    if (!Object.keys(runs).length) return;
+    // Without the Web Locks API (very old browsers) every mark is treated as interrupted
+    const locks = navigator.locks?.query ? await navigator.locks.query().catch(() => null) : null;
+    const held = new Set((locks?.held ?? []).map((l) => l.name));
+    const queued = new Set((await outbox.list().catch(() => [])).map((e) => e.runId));
+    const interrupted = [];
+    for (const [runId, mark] of Object.entries(runs)) {
+      if (held.has(lockName(runId))) continue; // still running in another tab
+      if (!queued.has(runId)) {
+        try {
+          await store.abandon(runId);
+        } catch {
+          continue; // server unreachable or not allowed: keep the mark and try again next time
+        }
+        interrupted.push(mark);
+      }
+      delete runs[runId];
+    }
+    app.storage.set(ACTIVE_KEY, runs);
+    const last = interrupted.at(-1);
+    if (!last || state.run) return;
+    state.last = {
+      serial: last.serial,
+      result: 'ERROR',
+      reason: 'Önceki test yarıda kaldı: sayfa test bitmeden kapandı. Sonuç kaydedilmedi, rezervasyon kapatıldı.',
+      safety: { state: 'UNVERIFIED', reason: 'Sayfa test sırasında kapandı; kapanma doğrulanmadı' },
+      source: last.source,
+      saved: null,
+    };
+    state.ackRequired = true;
+    app.storage.set(ACK_KEY, { ...state.last });
+    render();
+  }
+
   async function releasePort(run) {
     if (run.locked) {
       run.locked = false;
@@ -403,6 +501,7 @@ export function initStation(ctx) {
         transport: run.transport,
         retestReason,
       });
+      markActive(run);
     } catch (err) {
       await releasePort(run);
       state.run = null;
@@ -413,12 +512,14 @@ export function initStation(ctx) {
         return;
       }
       if (err.code === 'REVISION_OUTDATED') await ctx.reloadProducts();
+      const holders = err.code === 'IN_PROGRESS' ? err.details?.reservations ?? [] : [];
       state.message = {
         kind: err.code === 'BLOCKED' ? 'fail' : 'error',
         title: err.code === 'BLOCKED' ? 'ONARIM' : 'BAŞLATILAMADI',
         serial,
-        text: err.message,
+        text: holders.length ? `${err.message}: ${holders.map(describeHolder).join('; ')}` : err.message,
         reopen: err.code === 'BLOCKED',
+        release: holders.length ? holders : null,
       };
       setPhase('ERROR');
       return;
@@ -452,7 +553,8 @@ export function initStation(ctx) {
       await releasePort(run);
     }
     if (!raw) {
-      store.abandon(run.runId);
+      store.abandon(run.runId).catch(() => {});
+      clearActive(run);
       state.run = null;
       state.message = { kind: 'error', title: 'HATA', serial, text: `Test yürütülemedi: ${crash?.message}. Kartın beslemesini kontrol edin.` };
       setPhase('ERROR');
@@ -486,7 +588,11 @@ export function initStation(ctx) {
     }
     try {
       await outbox.add(submission); // write-ahead: from here on the result cannot be lost
+      clearActive(run);
     } catch (err) {
+      // Nothing was stored: release the unit; the exported JSON is the only copy
+      store.abandon(run.runId).catch(() => {});
+      clearActive(run);
       state.unsaved = submission;
       state.last = { ...state.last, saved: 'unsaved', saveError: err.message };
       state.run = null;
@@ -537,6 +643,8 @@ export function initStation(ctx) {
   window.addEventListener('beforeunload', (e) => {
     if (state.run || state.unsaved) e.preventDefault();
   });
+
+  recoverInterruptedRuns().catch(() => {});
 
   return {
     start,

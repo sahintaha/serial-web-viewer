@@ -303,6 +303,35 @@ describe('reservations, idempotent saves and the retest policy', () => {
     assert.equal([a, b].find((r) => r.status === 409).body.code, 'IN_PROGRESS');
   });
 
+  test('an interrupted run can be released by its owner or an engineer, and the release is audited', async () => {
+    const body = (runId) => ({ runId, serial: 'SNS-000410', productCode: 'SVB-100', recipeRevision: 1, source: 'simulation', transport: 'simulator' });
+    const first = crypto.randomUUID();
+    assert.equal((await api(op, 'POST', '/api/runs', body(first))).status, 201);
+
+    // The page died: the same operator scans the board again
+    const refused = await api(op, 'POST', '/api/runs', body(crypto.randomUUID()));
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.code, 'IN_PROGRESS');
+    assert.equal(refused.body.reservations.length, 1);
+    assert.equal(refused.body.reservations[0].runId, first);
+    assert.equal(refused.body.reservations[0].user, 'operator kullanıcı');
+    assert.equal(refused.body.reservations[0].station, STATION.id);
+
+    assert.equal((await api(op2, 'POST', `/api/runs/${first}/abandon`)).status, 403, 'another operator cannot release it');
+    assert.equal((await api(op, 'POST', `/api/runs/${first}/abandon`)).status, 204);
+    assert.equal((await api(op, 'POST', '/api/runs', body(crypto.randomUUID()))).status, 201);
+
+    const audit = (await api(eng, 'GET', '/api/audit?entity=unit&entityId=SNS-000410')).body;
+    assert.deepEqual(audit.map((a) => [a.action, a.detail.runId]), [['reservation.abandon', first]]);
+
+    // An engineer may release someone else's reservation; releasing twice is not audited twice
+    const open = (await api(op2, 'POST', '/api/runs', body(crypto.randomUUID()))).body.reservations[0].runId;
+    assert.equal((await api(eng, 'POST', `/api/runs/${open}/abandon`)).status, 204);
+    assert.equal((await api(eng, 'POST', `/api/runs/${open}/abandon`)).status, 204);
+    const after = (await api(eng, 'GET', '/api/audit?entity=unit&entityId=SNS-000410')).body;
+    assert.equal(after.filter((a) => a.action === 'reservation.abandon').length, 2);
+  });
+
   test('a serial number belongs to one product', async () => {
     await runTest(op, 'SNS-000500');
     const res = await api(op, 'POST', '/api/runs', { runId: crypto.randomUUID(), serial: 'SNS-000500', productCode: 'SVB-200', recipeRevision: 2, source: 'simulation', transport: 'simulator' });
