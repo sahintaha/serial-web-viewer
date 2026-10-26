@@ -28,6 +28,10 @@ const int PIN_VSENSE = A0;
 const int PIN_ISENSE = A1;
 const int PIN_SENSOR = A2;
 
+// STATUS? reports the supply as MEASURED on A0, not the pin state: a welded relay or a
+// shorted MOSFET then shows up as PWR=1 even after PWR OFF. Check the threshold on your fixture.
+const float SUPPLY_PRESENT_V = 0.5;
+
 const int SERIAL_ADDR = 0;     // EEPROM: up to 40 characters + terminator
 const int SERIAL_MAX = 40;
 const int LINE_MAX = 80;
@@ -129,7 +133,8 @@ void execute(char *cmd, char *out) {
   if (strcmp(upper, "SN?") == 0) { snprintf(out, REPLY_MAX, "SN %s", serialNumber); return; }
   if (strcmp(upper, "ID?") == 0) { snprintf(out, REPLY_MAX, "ID %s FW%s", MODEL, FIRMWARE); return; }
   if (strcmp(upper, "STATUS?") == 0) {
-    snprintf(out, REPLY_MAX, "PWR=%d LED=%d WDT=%d", powered ? 1 : 0, ledOn ? 1 : 0, watchdogTripped ? 1 : 0);
+    bool supplyPresent = volts(PIN_VSENSE) * 2.0 > SUPPLY_PRESENT_V;  // 1:1 divider
+    snprintf(out, REPLY_MAX, "PWR=%d LED=%d WDT=%d", supplyPresent ? 1 : 0, ledOn ? 1 : 0, watchdogTripped ? 1 : 0);
     return;
   }
   if (strcmp(upper, "PWR ON") == 0) {

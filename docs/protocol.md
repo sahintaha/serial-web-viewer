@@ -66,7 +66,7 @@ so recipe limits refer to those keys.
 | `SN?` | `SN <serial>` | |
 | `ID?` | `ID <model> FW<version>` | Recipes check it with a glob, e.g. `ID SVB-100 FW1.4.*` |
 | `PWR ON` / `PWR OFF` | `OK` | Switches the DUT supply. `PWR OFF` also turns the LED off. Idempotent. |
-| `STATUS?` | `PWR=<0/1> LED=<0/1> WDT=<0/1>` | `WDT=1`: the watchdog switched the supply off since the last `PWR ON` |
+| `STATUS?` | `PWR=<0/1> LED=<0/1> WDT=<0/1>` | `PWR` is the supply **measured** on the board (not the state of the switching pin), so a welded relay reports `PWR=1`. `WDT=1`: the watchdog switched the supply off since the last `PWR ON` |
 | `WDT <ms>` | `OK` | Watchdog timeout, `0`–`60000` (default 3000; `0` disables it — bench use only) |
 | `MEAS?` | `V<volts>,I<milliamps>[,T<°C>]` | `ERR NOT_POWERED` when the supply is off |
 | `SELFTEST` | `OK` / `ERR SENSOR_FAULT` | `ERR NOT_POWERED` when the supply is off |
