@@ -1,170 +1,59 @@
-# Contributing to Serial Web Viewer
+# Contributing
 
-First off, thank you for considering contributing to Serial Web Viewer! 🎉
+Bug reports and pull requests are welcome. For anything larger than a small fix, open an
+issue first so the approach can be agreed before you spend time on it.
 
-## 📋 Table of Contents
+## Reporting a bug
 
-- [Code of Conduct](#code-of-conduct)
-- [How Can I Contribute?](#how-can-i-contribute)
-- [Development Setup](#development-setup)
-- [Pull Request Process](#pull-request-process)
-- [Style Guidelines](#style-guidelines)
+Include the steps to reproduce, what you expected and what happened, the mode
+(Tarayıcı / Sunucu / Simülatör), browser and Node.js versions, and — for test station
+problems — the communication log of the run (Geçmiş → record → Haberleşme kaydı).
 
-## 📜 Code of Conduct
+## Development setup
 
-This project and everyone participating in it is governed by our commitment to providing a welcoming and inclusive environment. Please be respectful and constructive in all interactions.
-
-## 🤔 How Can I Contribute?
-
-### Reporting Bugs
-
-Before creating bug reports, please check existing issues to avoid duplicates.
-
-**When creating a bug report, include:**
-- Clear and descriptive title
-- Steps to reproduce the issue
-- Expected vs actual behavior
-- Screenshots if applicable
-- Your environment (OS, Node.js version, browser)
-
-### Suggesting Features
-
-Feature suggestions are welcome! Please provide:
-- Clear description of the feature
-- Use case / problem it solves
-- Possible implementation approach (optional)
-
-### Code Contributions
-
-1. Look for issues labeled `good first issue` or `help wanted`
-2. Comment on the issue to let others know you're working on it
-3. Fork and create a feature branch
-4. Submit a pull request
-
-## 🛠️ Development Setup
+Node.js 22.13 or newer.
 
 ```bash
-# Fork and clone the repository
-git clone https://github.com/YOUR_USERNAME/serial-web-viewer.git
-cd serial-web-viewer
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Run tests and lint before opening a PR
-npm test
+npm ci
+npm start                       # http://localhost:3000, prints the setup code on first start
+npm test                        # unit and integration tests
+npm run test:e2e                # Playwright (first run: npx playwright install chromium)
+PW_CHANNEL=msedge npm run test:e2e   # or use an installed Edge / Chrome instead
 npm run lint
-
-# The app will be available at http://localhost:3000
 ```
 
-### Testing Without Hardware
+The browser-only build is just `public/`; serve it with any static server and open
+`/?demo` to use the simulator.
 
-Pick **Demo** mode (or open `http://localhost:3000/?demo`) to simulate serial data without an Arduino.
+## Where things live
 
-## 🔄 Pull Request Process
+- `public/js/recipe.js`, `production.js` — evaluation and policy logic shared by the browser
+  and the server. Changes here need unit tests in `test/`.
+- `public/js/channel.js`, `runner.js`, `simulator.js` — protocol, run sequence, simulated board.
+  Protocol changes must update the firmware (`examples/arduino`), the simulator and
+  `docs/protocol.md` together.
+- `public/js/station.js` and the other `*-ui.js` modules — screens. User-visible behaviour
+  belongs in an end-to-end test in `e2e/`.
+- `server.js`, `lib/`, `db.js` — server, REST API, Socket.io bridge, SQLite.
+- `scripts/vendor.js` (`npm run vendor`) — copies Chart.js, Sortable and the fonts into
+  `public/vendor/` so installations work offline. Run it after updating those packages.
 
-1. **Create a feature branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+## Database changes
 
-2. **Make your changes**
-   - Write clean, readable code
-   - Add comments for complex logic
-   - Update documentation if needed
+Never edit an existing migration. Add a new entry to `MIGRATIONS` in `db.js`, bump
+`LATEST_VERSION`, and add a test that opens a database of the previous version and checks
+the data survives. A migration runs in a transaction; it must work on a database with data.
 
-3. **Commit with descriptive messages**
-   ```bash
-   git commit -m "feat: add data export functionality"
-   ```
-   
-   Use conventional commits:
-   - `feat:` New feature
-   - `fix:` Bug fix
-   - `docs:` Documentation
-   - `style:` Formatting
-   - `refactor:` Code restructuring
-   - `test:` Adding tests
-   - `chore:` Maintenance
+## Pull requests
 
-4. **Push and create PR**
-   ```bash
-   git push origin feature/your-feature-name
-   ```
+- One topic per pull request, with tests for the behaviour it changes.
+- `npm run lint`, `npm test` and `npm run test:e2e` pass locally; CI also compiles the firmware.
+- Commit messages in English, imperative, with a type prefix: `fix: …`, `feat: …`, `docs: …`,
+  `test: …`, `refactor: …`, `chore: …`.
+- UI text is Turkish; code, comments and docs under `docs/` are English.
 
-5. **Fill out the PR template**
-   - Describe your changes
-   - Link related issues
-   - Add screenshots if UI changes
+## Safety-related changes
 
-## 📝 Style Guidelines
-
-### JavaScript
-
-- Use ES6+ features (const/let, arrow functions, template literals)
-- Use meaningful variable and function names
-- Add JSDoc comments for functions
-- Keep functions small and focused
-
-```javascript
-// Good
-const calculateTemperature = (rawValue) => {
-  return rawValue * 0.48828125;
-};
-
-// Avoid
-const calc = (v) => v * 0.48828125;
-```
-
-### CSS
-
-- Use CSS custom properties (variables)
-- Follow BEM-like naming convention
-- Mobile-first approach
-- Group related properties
-
-```css
-/* Good */
-.card-header {
-  /* Layout */
-  display: flex;
-  align-items: center;
-  
-  /* Spacing */
-  padding: var(--spacing-lg);
-  
-  /* Visual */
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-}
-```
-
-### HTML
-
-- Use semantic elements
-- Include accessibility attributes
-- Keep markup clean and readable
-
-## 🎯 Priority Areas
-
-We especially welcome contributions in these areas:
-
-- [ ] More tests (transports, UI)
-- [ ] TypeScript migration
-- [ ] Accessibility improvements
-- [ ] Performance optimizations
-- [ ] Documentation
-- [ ] Internationalization (i18n)
-
-## ❓ Questions?
-
-Feel free to open an issue with the `question` label or reach out to the maintainers.
-
----
-
-Thank you for contributing! 🙌
-
+Anything that touches the teardown, critical steps, the watchdog, the safety state or the
+retest policy must keep the existing tests passing and should add one for the new case. If
+the change affects the fixture, update [docs/hardware-checklist.md](docs/hardware-checklist.md).

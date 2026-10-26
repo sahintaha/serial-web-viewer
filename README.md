@@ -5,172 +5,247 @@
 
 Gömülü cihazlar için seri port aracı. İki iş yapar:
 
-- **Monitör:** Seri porttan gelen satırları canlı izler, alanlara ayırır ve grafikle gösterir. Komut göndermek de buradan yapılır.
-- **Üretim testi istasyonu:** Kartın seri numarası okutulur, karta sırayla komutlar gönderilir ve gelen cevaplar ürünün test reçetesine göre değerlendirilir. Sonuç PASS / FAIL / HATA olarak verilir ve kaydedilir.
+- **Monitör:** seri porttan gelen veriyi canlı izler (ham satırlar, HEX, arama, duraklatma, dosyaya kayıt), alanlara ayırır ve grafikle gösterir; komut gönderir.
+- **Üretim testi istasyonu:** kartın seri numarası okutulur, karta sırayla komutlar gönderilir, cevaplar ürünün test reçetesine göre değerlendirilir. Sonuç PASS / FAIL / HATA olarak, kartın güvenli kapatılıp kapatılmadığıyla birlikte kaydedilir.
 
-Uygulama tarayıcıda (Web Serial API) ya da Node.js köprüsüyle çalışır. Donanım yoksa, gerçek fikstür firmware'iyle aynı protokolü konuşan bir **simülatör** kullanılabilir.
+Tarayıcıda (Web Serial API) veya Node.js sunucusuyla çalışır. Donanım yoksa, fikstür firmware'iyle aynı protokolü konuşan bir **simülatör** kullanılabilir.
 
-**Canlı demo** (simülatörle açılır):
+**Canlı demo** (simülatörle açılır, kayıtlar yalnızca o tarayıcıda tutulur):
 - Monitör: [sahintaha.github.io/serial-web-viewer/?demo](https://sahintaha.github.io/serial-web-viewer/?demo)
 - Test istasyonu: [sahintaha.github.io/serial-web-viewer/?demo#production](https://sahintaha.github.io/serial-web-viewer/?demo#production)
 
-| Test istasyonu (FAIL alan bir kart) | Test kaydı detayı |
+| Test istasyonu | Test kaydı detayı |
 |:---:|:---:|
 | <img src="docs/screenshots/station.png" alt="Test istasyonu" width="440"> | <img src="docs/screenshots/test-detail.png" alt="Test kaydı detayı" width="440"> |
-| **Monitör** | **Ürün ve reçete editörü** (koyu tema) |
-| <img src="docs/screenshots/monitor.png" alt="Monitör" width="440"> | <img src="docs/screenshots/products-dark.png" alt="Ürün editörü" width="440"> |
+| **Kalite raporları** | **Reçete taslağı ve yayın farkı** (koyu tema) |
+| <img src="docs/screenshots/reports.png" alt="Kalite raporları" width="440"> | <img src="docs/screenshots/products-dark.png" alt="Ürün editörü" width="440"> |
 
 ---
 
 ## Test istasyonu nasıl çalışır
 
-Elektronik kart üretiminde son adım fonksiyonel testtir. Her kart fikstüre takılır, ölçülür ve sonucu seri numarasıyla kaydedilir. Böylece aylar sonra "PCB-000142 hangi değerlerle, hangi test sürümüyle, kim tarafından geçti?" sorusu cevaplanabilir (izlenebilirlik).
+Elektronik kart üretiminde son adım fonksiyonel testtir. Her kart fikstüre takılır, ölçülür ve sonucu seri numarasıyla kaydedilir. Böylece aylar sonra "SNS-000142 hangi değerlerle, hangi reçete revizyonuyla, hangi istasyonda, kim tarafından geçti?" sorusu cevaplanabilir.
 
-1. Operatör **ürünü seçer** ve kartın **seri numarasını okutur**. Barkod okuyucu Enter gönderdiği için test kendiliğinden başlar. Numara ürünün maskesine uymalıdır (ör. `SNS-######`).
-2. İstasyon, kartın geçmişine bakar:
-   - Kart sınır kadar **FAIL** aldıysa test edilmez, **onarıma** yönlendirilir.
-   - Daha önce **PASS** aldıysa operatöre tekrar test edilip edilmeyeceği sorulur.
-3. Ürünün **reçetesi** adım adım çalışır. Örnek reçete:
+1. Operatör ürünü seçer ve kartın **seri numarasını okutur** (barkod okuyucu Enter gönderir, test kendiliğinden başlar). Numara ürünün maskesine uymalıdır (ör. `SNS-######`).
+2. İstasyon testi **sunucuda rezerve eder**. Tekrar test kuralı burada, tek bir veritabanı işleminde kontrol edilir; iki istasyon aynı kartın son hakkını aynı anda kullanamaz.
+3. Ürünün **reçetesi** adım adım çalışır. Her komut bir istek kimliği taşır (`#00A1 MEAS?` → `@#00A1 V5.012,I118.3`); geç gelen bir cevap başka bir komutun cevabı sayılamaz.
 
    | # | Adım | Gönderilen | Beklenen |
    |---|---|---|---|
    | 1 | Seri numarasını yaz | `SN {serial}` | `OK` |
-   | 2 | Kimlik ve firmware | `ID?` | `ID SVB-100 FW1.4.*` |
+   | 2 | Kimlik ve firmware | `ID?` | `ID SVB-100 FW1.4.*` (sürüm kayda yazılır) |
    | 3 | Beslemeyi aç | `PWR ON` | `OK` |
-   | 4 | Oturma süresi | — | 300 ms bekle |
+   | 4 | Oturma süresi | — | 300 ms |
    | 5 | Besleme ölçümü | `MEAS?` × 5 | V 4.9–5.1 V, I 80–150 mA (ortalama) |
    | 6 | Sensör self-test | `SELFTEST` | `OK` |
-   | 7 | LED kontrolü | `LED ON` | Operatöre sorulur: "LED yanıyor mu?" |
-   | T | Teardown | `LED OFF`, `PWR OFF` | Her durumda çalışır |
+   | 7 | LED kontrolü | `LED ON` | operatöre sorulur |
+   | T | Teardown | `LED OFF`, `PWR OFF` (kritik), `STATUS?` → `PWR=0 *` (kritik) | her durumda çalışır |
 
-4. **Karar:**
-   - **PASS:** tüm adımlar geçti.
-   - **FAIL:** kart arızalı (yanlış cevap, `@ERR`, limit dışı değer, operatörün "hayır" demesi).
-   - **HATA:** test tamamlanamadı (cevap yok, eksik ölçüm, iptal, bağlantı koptu). HATA kartın değil istasyonun sorunudur, bu yüzden tekrar test sınırına sayılmaz.
-5. Sonuç, adım verileri ve ham haberleşme kaydı (TX/RX) saklanır. Geçmiş ekranında her kaydın adım adım detayı açılır; filtrelenmiş sonuçlar CSV olarak indirilebilir.
+4. İki ayrı sonuç üretilir:
+   - **Karar** (kart hakkında): **PASS**; **FAIL** (yanlış cevap, `@ERR`, limit dışı, operatör "hayır" dedi); **HATA** (test tamamlanamadı: cevap yok, eksik veya geçersiz ölçüm, iptal, bağlantı koptu).
+   - **Güvenli durum** (fikstür hakkında): **SAFE** (besleme kapandı ve ölçülerek doğrulandı), **UNSAFE** (kart besleme kapanmadı diyor), **UNVERIFIED** (doğrulanamadı). SAFE değilse istasyon bunu kırmızı gösterir ve operatör kontrol ettiğini onaylamadan yeni test başlatılamaz; bu onay sayfa yenilense de istenir.
+5. Sonuç önce tarayıcıda kalıcı bir **gönderim kuyruğuna** yazılır, sonra sunucuya gönderilir. Bağlantı koparsa veya sunucunun cevabı kaybolursa kuyruk aynı `runId` ile tekrar gönderir; sunucu aynı kaydı ikinci kez eklemez.
 
-Protokolün tamamı: [docs/protocol.md](docs/protocol.md).
+Protokol, güvenli kapanma ve reçete biçimi: [docs/protocol.md](docs/protocol.md). Gerçek donanımda elle doğrulanması gerekenler: [docs/hardware-checklist.md](docs/hardware-checklist.md).
 
-### Tasarım kararları
+### Ölçüm doğruluğu
 
-- **Cevaplar `@` ile başlar.** Cihaz test sırasında telemetri göndermeye devam edebilir; istasyon yalnızca komuttan *sonra* gelen `@` satırlarını cevap kabul eder. Kart takılmadan önce gelmiş eski bir satır asla ölçüm sayılmaz.
-- **Karar sunucuda yeniden hesaplanır.** İstasyon ham cevapları gönderir; sunucu aynı modülle (`public/js/recipe.js`) kararı kendisi verir. İstemci "PASS" yazıp gönderse bile kayıt değişmez.
-- **Reçeteler sürümlüdür.** Bir ürün her değiştirilip kaydedildiğinde yeni bir revizyon oluşur ve test kaydı hangi revizyonla yapıldığını saklar. Eski kayıtlar, limitler sonradan değişse bile kendi revizyonlarıyla değerlendirilmiş kalır. Ürünler silinmez, arşivlenir.
-- **Kullanıcı regex'i yok.** Seri no maskeleri (`#`, `@`, `?`) ve cevap kalıpları (`*`, `?`) doğrusal zamanlı eşleştirilir, böylece sunucu kötü yazılmış bir ifadeyle kilitlenemez.
-- **Simülatör deterministiktir.** Bir kartın arızası seri numarasından türetilir. Aynı bozuk kart tekrar test edilince yine FAIL alır. "Aralıklı iletişim" arızalı kart ise ilk denemede HATA, ikincide PASS verir. Arıza türü elle de seçilebilir: aşırı akım, düşük voltaj, eski firmware, sensör, LED, cevapsız.
+- Sayıya çevrilemeyen veya sonsuza taşan değerler (`NaN`, `Infinity`, `1e999`, metin) **geçersiz** sayılır; adım HATA olur, asla PASS olmaz.
+- Reçetedeki örnek sayısından az ölçüm "eksik", fazla cevap "fazla örnek" olarak HATA verir.
+- Değerlendirme modu (`mean`, `min`, `max`, `all`) reçete revizyonunun parçasıdır ve her sonuçla birlikte saklanır.
+- Karar sunucuda, kaydın ait olduğu reçete revizyonuyla **yeniden hesaplanır**. İstasyon "PASS" yazıp gönderse bile kayıt değişmez. (Bu, fiziksel ölçümün gerçekten o fikstürden geldiğini kanıtlamaz; bkz. Sınırlamalar.)
 
-## Monitör
+## Kullanıcılar, roller ve izlenebilirlik (sunucu modu)
 
-- Bağlantı modları:
-  - **Tarayıcı:** Web Serial API ile USB porta doğrudan bağlanır (Chrome / Edge, kurulum yok).
-  - **Sunucu:** Node.js + Socket.io köprüsü. Ayrı alıcı/verici port kullanılabilir; birden fazla sekme aynı bağlantıyı paylaşır.
-  - **Simülatör:** donanım olmadan, komutlara cevap veren sanal kart.
-- `A25.5,B60`, `temp:25;hum=60`, `{"temp":25}` ve `25,60` biçimleri otomatik algılanır; anahtarlar etiketlerle anlamlı adlara eşlenir.
-- Ham log, son değerler ve grafik panelleri sürükle-bırak ile düzenlenir. Kaydedilen satırlar CSV olarak indirilebilir.
-- Protokol cevapları (`@…`) logda ayrı renkte görünür; grafiklere karışmaz.
-
-## Mimari
-
-```
-                      ┌──────────────────────── public/js ─────────────────────────┐
- USB ─ Web Serial ───▶│ WebSerialTransport ┐                                       │
- USB ─ server.js ────▶│ ServerTransport ───┼──▶ app.js (monitör)                   │
-       (Socket.io)    │ DemoTransport ─────┘    production-ui.js ──▶ runner.js     │
-                      │   └ simulator.js                                │          │
-                      │                          recipe.js ◀────────────┘          │
-                      │                          production.js  results-store.js ──┼──▶ /api (SQLite)
-                      └────────────────────────────────────────────────────────────┘   veya localStorage
-```
-
-| Dosya | Görev |
+| Rol | Yapabildikleri |
 |---|---|
-| `public/js/recipe.js` | Ürün/reçete doğrulama, seri no maskesi, cevap kalıbı, adım ve test kararı. Tarayıcı ve sunucu ortak kullanır. |
-| `public/js/runner.js` | Reçeteyi çalıştırır: komut gönder, cevap bekle, zaman aşımında tekrar dene, iptalde de teardown çalıştır |
-| `public/js/simulator.js` | Protokolü konuşan sanal kart (arıza enjeksiyonu ile) |
-| `public/js/production.js` | Test kaydı doğrulama, CSV, istatistik, tekrar test kuralı |
-| `public/js/production-ui.js` | İstasyon, geçmiş ve ürün editörü ekranları |
-| `public/js/results-store.js` | Sunucu (SQLite) veya tarayıcı deposu, aynı arayüzle |
-| `public/js/parser.js`, `transports.js`, `app.js` | Satır ayrıştırma, bağlantılar, monitör arayüzü |
-| `server.js`, `db.js` | Express + Socket.io köprüsü, REST API, SQLite şeması ve sürüm geçişleri |
-| `examples/arduino/svb_fixture` | Aynı protokolü uygulayan gerçek kart firmware'i |
+| Operatör | Test yapar, geçmişi ve raporları görür, CSV indirir. Limitleri değiştiremez. |
+| Mühendis | Ayrıca reçete taslağı hazırlar, yayınlar, ürün arşivler; FAIL sınırına ulaşmış kartı gerekçeyle yeniden açar. |
+| Yönetici | Ayrıca kullanıcı ekler/devre dışı bırakır, veritabanı yedeği indirir. |
 
-Frontend'de framework veya bundler yok; doğrudan tarayıcıda çalışan ES modülleri kullanılıyor. Bu yüzden aynı dosyalar hem GitHub Pages'te hem Node sunucusunda hem de testlerde çalışıyor.
+- Varsayılan parola yoktur. İlk açılışta sunucu konsola tek kullanımlık bir **kurulum kodu** yazar; ilk yönetici bu kodla oluşturulur.
+- Operatör adı serbest metin değildir; kayıtlar oturum açan kullanıcının adıyla saklanır. Parolalar scrypt ile, oturumlar yalnızca SHA-256 özetiyle saklanır. REST istekleri ve Socket.io kontrol olayları (bağlan, gönder, kilitle, bağlantıyı kes) her seferinde oturumla yetkilendirilir; çıkış yapan veya devre dışı bırakılan kullanıcı portu hemen kontrol edemez.
+- Reçeteler **taslak → yayın** akışıyla değişir. Taslak istasyonu etkilemez; yayınlarken yayındaki revizyonla farkı gösterilir ve "neyi neden değiştirdiniz" notu zorunludur. Yayınlanmış revizyonlar değişmez.
+- Kim, ne zaman, neyi, neden değiştirdi: reçete yayını, arşivleme, kart yeniden açma, PASS sonrası tekrar test, kullanıcı değişiklikleri ve yedekler denetim kaydına yazılır.
+- Her test kaydında istasyon, fikstür, kalibrasyon kimliği ve son tarihi, uygulama sürümü, kartın firmware sürümü, kaynak (gerçek kart / simülasyon) ve bağlantı tipi bulunur. Kalibrasyon süresi dolmuş bir istasyon gerçek kart test edemez.
 
-## Çalıştırma
+## Tekrar test kuralları
 
-**Sadece tarayıcı:** canlı demoyu açın. Gerçek kart için Tarayıcı modunu seçip Bağlan'a basın; test istasyonu sonuçları bu durumda tarayıcı deposuna yazar.
+| Durum | Davranış |
+|---|---|
+| Kart hiç test edilmemiş | Test edilir. |
+| Kart daha önce **PASS** aldı | Tekrar test için gerekçe istenir; gerekçe kayda ve denetim kaydına yazılır. |
+| Kart son yeniden açılıştan beri ürünün "En fazla FAIL" sayısı kadar **FAIL** aldı | Test edilmez, onarıma yönlendirilir. Mühendis onarım gerekçesiyle yeniden açınca sayaç sıfırlanır; eski kayıtlar silinmez. |
+| **HATA** sonuçları | FAIL sınırına sayılmaz (sorun istasyondadır). |
+| Kart şu anda başka bir istasyonda testte | Reddedilir. 30 dakikadan eski, bitmemiş rezervasyonlar terk edilmiş sayılır. |
+| Seri numarası başka bir ürüne ait | Reddedilir (bir seri numarası tek ürüne aittir). |
+| Reçete test başlarken güncellendi | Test başlamaz, istasyon yeni revizyonu yükler. Çalışan test başladığı revizyonla biter. |
+| **Simülasyon** testleri | Ayrı tutulur: gerçek kartların deneme sayısını, FAIL sınırını ve üretim raporlarını etkilemez. |
+| Eski sürümden gelen, kaynağı bilinmeyen kayıtlar | "Kaynak bilinmiyor" olarak işaretlenir ve ihtiyatlı olarak üretim verisine dahil edilir. |
 
-**Node.js sunucusu ile** (SQLite kaydı, ayrı RX/TX portu):
+Sunucusuz (tarayıcı) modda aynı kurallar uygulanır ama **yalnızca o tarayıcı için**: başka bir tarayıcının veya silinmiş bir profilin geçmişi görülemez. Merkezi garanti için sunucu kullanılmalıdır.
+
+## Raporlar
+
+- **Deneme verimi** = PASS test / tüm testler.
+- **FPY (ilk seferde geçme)** = 1. denemesi dönemde olan kartlardan 1. denemede PASS alanlar.
+- **Nihai verim** = dönemde PASS almış kart / test edilen kart.
+- FAIL, HATA ve tekrar testler ayrı sütunlardadır. Günlük sonuç grafiği ve hata sebebi Pareto grafiği vardır.
+- **Ölçüm dağılımı ve Cpk:** Cpk yalnızca en az 30 ölçüm, dönem içinde tek bir limit seti ve sıfırdan büyük bir dağılım varsa gösterilir; kararlı ve yaklaşık normal bir süreç varsayar. Koşullar sağlanmazsa neden gösterilmediği yazılır.
+- Tek bir kaydın yazdırılabilir raporu (kart başına test raporu) geçmiş ekranından alınır.
+- Simülasyon sonuçları raporlara varsayılan olarak girmez.
+
+## Kurulum
+
+### Sadece tarayıcı
+
+Canlı demoyu açın. Gerçek kart için **Tarayıcı** modunu seçip Bağlan'a basın (Chrome / Edge). Sonuçlar tarayıcının IndexedDB deposunda tutulur; hiçbir kayıt kendiliğinden silinmez, depo durumu ve "tümünü dışa aktar" Geçmiş sayfasındadır. Tüm dosyalar (yazı tipleri, Chart.js, Sortable) projeyle gelir; internet bağlantısı gerekmez.
+
+### Node.js sunucusu
+
+Node.js **22.13 veya üstü** gerekir (yerleşik `node:sqlite`).
 
 ```bash
 git clone https://github.com/sahintaha/serial-web-viewer.git
 cd serial-web-viewer
-npm install
+npm ci
+cp .env.example .env
 npm start
 ```
 
-Ardından `http://localhost:3000` adresini açın. Node.js 22.13 veya üstü gerekir (yerleşik `node:sqlite` modülü için). Ayarlar `.env` dosyasından okunur (`.env.example`'a bakın):
+Konsolda `İlk kurulum: … kurulum kodu: XXXX` satırını görün, `http://localhost:3000` adresini açın ve yönetici hesabını bu kodla oluşturun. Diğer kullanıcılar sağ üstteki menüden **Kullanıcılar** ile eklenir.
 
 | Değişken | Varsayılan | Açıklama |
 |---|---|---|
-| `PORT` | `3000` | HTTP portu |
-| `HOST` | `127.0.0.1` | `0.0.0.0` yapılırsa ağdaki herkes cihaza yazabilir |
-| `BAUD_RATE` | `9600` | Varsayılan baud rate |
-| `DB_PATH` | `./data/serial-viewer.db` | SQLite dosyası. Eski sürüm veritabanları açılırken otomatik taşınır. |
+| `PORT` / `HOST` | `3000` / `127.0.0.1` | `0.0.0.0` yapılırsa ağdaki herkes arayüze ulaşır; o durumda önüne HTTPS'li bir ters vekil koyun |
+| `BAUD_RATE` | `9600` | Varsayılan baud rate (arayüzden değiştirilebilir) |
+| `DB_PATH` | `./data/serial-viewer.db` | SQLite dosyası |
+| `STATION_ID`, `FIXTURE_ID` | bilgisayar adı, boş | Her kayda yazılır |
+| `CALIBRATION_ID`, `CALIBRATION_DUE` | boş | Kalibrasyon kaydı; son tarih geçtiyse gerçek kart testi reddedilir |
+| `BUILD_SHA` | boş | Kayıtlardaki uygulama sürümüne eklenir |
 
-**Docker:** `docker compose up -d` komutuyla çalışır. Seri cihaz için `docker-compose.yml` içindeki `devices` bölümünü açın; veriler `./data` klasöründe kalır.
+### Docker
 
-**Gerçek kart:** [`examples/arduino/svb_fixture`](examples/arduino/svb_fixture/svb_fixture.ino) dosyasını bir Arduino Uno / Nano'ya yükleyin. Kablo bağlantıları dosyanın başında yazılı. Baud rate 115200'dür.
+```bash
+cp .env.example .env        # STATION_ID, kalibrasyon, UID / GID
+mkdir -p data               # .env'deki UID:GID'ye ait olmalı
+docker compose up -d
+docker compose logs         # kurulum kodu burada
+```
 
-## REST API
+Seri cihaz için `docker-compose.yml` içindeki `devices` ve `group_add` bölümlerini açın (`group_add`'a ana makinedeki `dialout` grubunun numarasını yazın: `getent group dialout`). Konteyner `/health` ile sağlık kontrolü yapar; `docker stop` portu kapatıp veritabanını düzgün kapatır.
 
-| Metot | Uç | Açıklama |
+### Gerçek kart
+
+[`examples/arduino/svb_fixture`](examples/arduino/svb_fixture/svb_fixture.ino) dosyasını bir Arduino Uno / Nano'ya yükleyin (115200 baud). Kablo bağlantıları dosyanın başında yazılı. `STATUS?` beslemeyi pin durumundan değil A0'dan **ölçerek** bildirir; yapışmış bir röle bu yüzden yakalanır. Firmware CI'da her değişiklikte derlenir.
+
+## Yükseltme ve veritabanı taşıma
+
+1. **Yedek alın** (sunucu çalışırken alınabilir):
+   ```bash
+   node scripts/db.js backup yedek-2026-10-26.db
+   ```
+2. Sunucuyu durdurun (`Ctrl+C` veya `docker compose stop`).
+3. Kodu güncelleyin: `git pull && npm ci` (Docker: `docker compose build`).
+4. Başlatın. Şema açılışta otomatik taşınır (`PRAGMA user_version`, şu an 4). Her sürüm adımı ayrı bir veritabanı işlemidir; bir adım başarısız olursa veritabanı bir önceki tutarlı sürümde kalır ve sunucu başlamaz. Eski kayıtlar korunur ve kaynakları "bilinmiyor" olarak işaretlenir.
+5. Bu sürümden itibaren oturum zorunludur: ilk açılışta konsoldaki kurulum koduyla yönetici oluşturun.
+6. Uygulamanın tanımadığı **daha yeni** bir şemayla karşılaşırsa açılmayı reddeder (eski sürüme geri dönüldüğünde veri bozulmasın diye).
+
+Geri dönmek gerekirse:
+
+```bash
+node scripts/db.js verify  yedek-2026-10-26.db   # bütünlük, yabancı anahtarlar, şema sürümü
+node scripts/db.js restore yedek-2026-10-26.db   # sunucu kapalıyken
+```
+
+`restore` yedeği doğrular, mevcut veritabanının tutarlı bir kopyasını `<DB_PATH>.before-restore-<zaman>.db` olarak saklar, eski WAL/SHM dosyalarını siler, dosyayı atomik olarak değiştirir ve gerekiyorsa şemayı taşır. Sunucu çalışıyorsa reddeder.
+
+**Tarayıcı modu:** önceki sürümün `localStorage` kayıtları ilk açılışta IndexedDB'ye bir kez aktarılır ve "kaynak bilinmiyor" olarak işaretlenir.
+
+**Firmware:** protokol v2 istek kimlikleri, cevap önbelleği, watchdog, `PING` ve `STATUS?` ekler. Henüz güncellenmemiş bir fikstür için ürün ayarlarında protokolü **v1 (eski firmware)** seçin; bu mod açıkça seçilmedikçe kullanılmaz ve geç cevap koruması daha zayıftır (bkz. protokol belgesi).
+
+## Mimari
+
+```
+                       ┌──────────────────────────── public/js ─────────────────────────────┐
+ USB ─ Web Serial ────▶│ WebSerialTransport ┐                                               │
+ USB ─ server.js ─────▶│ ServerTransport ───┼─▶ CommandChannel ─▶ monitor.js                 │
+       (Socket.io,     │ DemoTransport ─────┘   (kimlik, kuyruk,   station.js ─▶ runner.js    │
+        port kilidi)   │   └ simulator.js        kilit, heartbeat)        recipe.js           │
+                       │                                                                     │
+                       │ outbox.js ─▶ results-store.js ──▶ /api (SQLite)  veya  IndexedDB     │
+                       └─────────────────────────────────────────────────────────────────────┘
+```
+
+| Dosya | Görev |
+|---|---|
+| `public/js/recipe.js` | Ürün/reçete doğrulama, seri no maskesi, cevap kalıbı, ölçüm değerlendirme ve test kararı. Tarayıcı ve sunucu ortak kullanır. |
+| `public/js/channel.js` | Port başına komut kuyruğu, istek kimlikleri, test kilidi, heartbeat |
+| `public/js/runner.js` | Reçeteyi çalıştırır; teardown her durumda, kritik adımlar tekrar denenerek |
+| `public/js/station.js` | İstasyon durum makinesi: IDLE → CHECKING → RUNNING → TEARDOWN → SAVING → COMPLETED / ERROR |
+| `public/js/outbox.js`, `local-db.js` | Kalıcı gönderim kuyruğu, IndexedDB (sekmeler arası atomik) |
+| `public/js/results-store.js` | Sunucu ve tarayıcı deposu, aynı arayüzle |
+| `public/js/production.js` | Kayıt doğrulama, tekrar test kuralı, CSV, verim ve Cpk |
+| `public/js/history-ui.js`, `reports-ui.js`, `products-ui.js` | Geçmiş, raporlar, reçete editörü |
+| `public/js/monitor.js` | Ham log, HEX, kayıt, grafikler, komut gönderme |
+| `server.js`, `lib/` | Express, Socket.io köprüsü ve port kilidi, kimlik doğrulama, REST API |
+| `db.js` | SQLite şeması, sürüm geçişleri, sayfalı sorgular, akışlı dışa aktarma, yedek |
+| `examples/arduino/svb_fixture` | Protokolü uygulayan fikstür firmware'i |
+
+Frontend'de framework veya bundler yok; tarayıcıda doğrudan çalışan ES modülleri kullanılıyor. Aynı dosyalar GitHub Pages'te, Node sunucusunda ve testlerde çalışıyor.
+
+## REST API (özet)
+
+Tüm uçlar oturum ister (`/health` hariç). Hatalar `{ errors: [...], code? }` döner.
+
+| Metot | Uç | Rol |
 |---|---|---|
-| GET | `/api/products` | Ürünler (güncel revizyon) |
-| GET | `/api/products/:code?revision=n` | Belirli bir revizyon |
-| PUT | `/api/products/:code` | Kaydet; tanım değiştiyse yeni revizyon oluşur |
-| DELETE | `/api/products/:code` | Arşivle (silmez) |
-| GET | `/api/units/:serial?product=` | Kartın deneme sayısı, FAIL sayısı, engelli olup olmadığı |
-| POST | `/api/tests` | Test kaydı: `{ serial, productCode, recipeRevision, startedAt, finishedAt, steps, teardown, error?, log? }`. Karar sunucuda hesaplanır. |
-| GET | `/api/tests?serial=&product=&result=&from=&to=` | Sorgu ve istatistik |
-| GET | `/api/tests/:id`, `/api/tests/export.csv` | Tek kayıt, CSV rapor |
-| GET | `/health`, `/ports` | Durum, seri port listesi |
-
-Geçersiz istekler `400 { errors: [...] }` döner. Socket.io olayları (`select-ports`, `send-manual`, `serial-data`, `connection-status`) `server.js` içinde belgelenmiştir.
+| GET | `/api/products`, `/api/products/:code[?revision=n]` | operatör |
+| GET/PUT/DELETE | `/api/products/:code/draft` | mühendis |
+| POST | `/api/products/:code/publish` (`note` zorunlu), `/archive` (`reason` zorunlu), `/restore` | mühendis |
+| GET | `/api/products/:code/revisions` (revizyonlar ve denetim kaydı) | mühendis |
+| GET | `/api/units/:serial?product=&source=` | operatör |
+| POST | `/api/units/:serial/reopen` (`reason` zorunlu) | mühendis |
+| POST | `/api/runs` (rezervasyon), `/api/runs/:runId/abandon` | operatör |
+| POST | `/api/tests` (`runId` ile idempotent; karar sunucuda hesaplanır) | operatör |
+| GET | `/api/tests?…&limit=&offset=` (özet + toplam), `/api/tests/:id` (detay), `/api/tests/export.csv` (akışlı) | operatör |
+| GET | `/api/reports`, `/api/reports/measurement?product=&key=` | operatör |
+| GET | `/api/audit` | mühendis |
+| GET | `/api/admin/backup`, `/api/users` … | yönetici |
 
 ## Testler
 
 ```bash
-npm test       # node:test
-npm run lint   # ESLint
+npm test             # birim ve entegrasyon testleri (node:test)
+npm run test:e2e     # Playwright; yerelde kurulu Edge ile: PW_CHANNEL=msedge npm run test:e2e
+npm run lint
 ```
 
-- **Reçete mantığı:** doğrulama hata mesajları, maske ve kalıp eşleme (geri izleme patlaması dahil), adım ve test kararları.
-- **Runner + simülatör entegrasyonu:** gerçek reçeteler, bellek içi bir "seri hat" üzerinden simülatöre karşı çalışır. Her arıza türünün doğru sonucu verdiği, aralıklı arızanın tekrar testte geçtiği, iptalde teardown'un kartı kapattığı doğrulanır.
-- **REST API ve SQLite:** revizyonlar, arşivleme, istemci kararının yok sayılması, tekrar test kuralı, filtreler, CSV, eski veritabanının taşınması.
+- **Ölçüm ve karar:** NaN / Infinity / taşma, eksik ve fazla örnek, değerlendirme modları, kayıt-reçete uyumu.
+- **Protokol ve kanal:** geç `@OK`, yinelenen cevap, kuyruk sırası, test kilidi, v1 koruma penceresi, heartbeat.
+- **Runner + simülatör:** her arıza türü, iptal, beklenmeyen hata, bağlantı kopması, yapışmış röle, watchdog.
+- **Sunucu (SerialPortMock ve gerçek Socket.io istemcileri):** port kilidi, başka sekmeden yazma/bağlantı kesme, hızlı yeniden bağlanma, kaybolan port, roller, rezervasyon yarışı, idempotent kayıt, CSV formül enjeksiyonu, 3000 satırlık akışlı dışa aktarma, şema taşıma, yedek ve geri yükleme.
+- **Tarayıcı deposu (fake-indexeddb):** sekmeler arası rezervasyon, gönderim kuyruğu, depolama hatası, eski veri aktarımı.
+- **Uçtan uca (Playwright):** simülatörle test, çift başlatma, güvenli olmayan kart, test sırasında gönderim kilidi, taslak/yayın, FAIL sınırı ve yeniden açma; sunucu modunda ilk kurulum, sahte seri porttan gerçek kart testi, iki sekme, kaybolan kayıt cevabı + sayfa yenileme, kablo çıkarma, PASS sonrası gerekçe, yetkisiz değişiklik ve denetim kaydı.
 
-CI her push'ta bunları Node 22 ve 24'te çalıştırır ve `main` dalını GitHub Pages'e yayınlar.
+CI her push'ta birim testlerini Node 22 ve 24'te, uçtan uca testleri Chromium'da çalıştırır, fikstür firmware'ini derler ve ancak hepsi geçerse `main`'i GitHub Pages'e yayınlar.
 
 ## Bilinen sınırlamalar
 
-- **Protokolde istek kimliği yok.** Zaman aşımından sonra gelen geç bir cevap, sıradaki komutun cevabı sanılabilir. `timeoutMs` cihazın en kötü cevap süresinin rahatça üstünde tutulmalı. Cevaba sıra numarası eklemek bu sınırlamayı kaldırır.
-- **Tek istasyon, tek kart.** Paralel test için her port ayrı bir istasyon olmalı.
-- **Kimlik doğrulama yok.** Operatör adı serbest metin; ürün ve reçete değişikliğini herkes yapabilir. Bir üretim ortamında rol bazlı yetki gerekir.
-- **GitHub Pages demosunda kayıtlar sadece o tarayıcıda** (localStorage) tutulur.
+- **Sunucunun kararı yeniden hesaplaması, ölçümün nereden geldiğini kanıtlamaz.** Değiştirilmiş bir tarayıcının sahte PASS yazmasını engeller; yanlış bağlanmış veya kalibrasyonu kaymış bir fikstürü yakalamaz. Bunun için [donanım kontrol listesi](docs/hardware-checklist.md) ve kalibrasyon kaydı gerekir.
+- **Tarayıcı modunda merkezi garanti yok.** Kullanıcı, rol ve denetim kaydı yalnızca sunucu modunda vardır; tekrar test kuralları tarayıcı başınadır.
+- **Tek istasyon, tek kart.** Paralel test için her port ayrı bir istasyon olmalıdır.
+- **Web Serial modu otomatik test edilmiyor.** Tarayıcının port seçme penceresi otomasyona kapalı; bu mod elle doğrulanır.
+- **Sunucu HTTPS sunmaz.** Ağa açılacaksa önüne TLS'li bir ters vekil konmalıdır (çerez o durumda `Secure` olarak işaretlenir).
 - **Simülatör gerçek bir kart değildir.** Protokol ve test akışı gerçek; ölçümler sentetik.
-
-## Yol haritası
-
-- **Kalite raporları:** günlük verim, ilk seferde geçme oranı (FPY), hata sebebi Pareto grafiği, ölçüm dağılımı ve Cpk
-- Kart başına yazdırılabilir test raporu
-- `@serialport/binding-mock` ile sunucu tarafı seri port testleri, Playwright ile arayüz testleri
-- Monitör: duraklat, ara, HEX görünüm, logu dosyaya kaydet
 
 ## Sorun giderme
 
 - **Tarayıcı modu seçilemiyor:** Firefox ve Safari Web Serial desteklemiyor; Chrome / Edge veya Sunucu modunu kullanın.
-- **Linux'ta port görünmüyor:** `sudo usermod -a -G dialout $USER` komutunu çalıştırıp oturumu yeniden açın.
-- **Anlamsız karakterler geliyor:** baud rate, firmware'deki `Serial.begin(...)` değeriyle aynı olmalı (fikstür firmware'i için 115200).
+- **Linux'ta port görünmüyor:** `sudo usermod -a -G dialout $USER`, ardından oturumu yeniden açın. Docker'da `group_add` kullanın.
+- **Anlamsız karakterler:** baud rate ve satır ayarları (data bits, parity, stop bits) firmware'dekiyle aynı olmalı; fikstür firmware'i 115200 8N1.
+- **"Port … tarafından test için kilitli":** başka bir sekme veya istasyon bu portta test çalıştırıyor; test bitince kilit kalkar.
+- **Kurulum kodunu kaçırdım:** kullanıcı yokken sunucu her başlangıçta kodu yeniden yazar.
 
 ## Lisans
 
