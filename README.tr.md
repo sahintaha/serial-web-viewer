@@ -119,7 +119,7 @@ Konsolda `İlk kurulum: … kurulum kodu: XXXX` satırını görün, `http://loc
 |---|---|---|
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | `0.0.0.0` yapılırsa ağdaki herkes arayüze ulaşır; o durumda önüne HTTPS'li bir ters vekil koyun |
 | `BAUD_RATE` | `9600` | Varsayılan baud rate (arayüzden değiştirilebilir) |
-| `DB_PATH` | `./data/serial-viewer.db` | SQLite dosyası |
+| `DB_PATH` | `./data/serial-viewer.db` | SQLite dosyası (adı projenin ilk adından kalma; mevcut kurulumlar için korunuyor) |
 | `STATION_ID`, `FIXTURE_ID` | bilgisayar adı, boş | Her kayda yazılır |
 | `CALIBRATION_ID`, `CALIBRATION_DUE` | boş | Kalibrasyon kaydı; son tarih geçtiyse gerçek kart testi reddedilir |
 | `BUILD_SHA` | boş | Kayıtlardaki uygulama sürümüne eklenir |
@@ -187,8 +187,9 @@ node scripts/db.js restore yedek-2026-10-26.db   # sunucu kapalıyken
 | `public/js/results-store.js` | Sunucu ve tarayıcı deposu, aynı arayüzle |
 | `public/js/production.js` | Kayıt doğrulama, tekrar test kuralı, CSV, verim ve Cpk |
 | `public/js/history-ui.js`, `reports-ui.js`, `products-ui.js` | Geçmiş, raporlar, reçete editörü |
+| `public/js/demo-data.js` | Örnek veri: sanal saatte iki haftalık simüle üretim |
 | `public/js/monitor.js` | Ham log, HEX, kayıt, grafikler, komut gönderme |
-| `server.js`, `lib/` | Express, Socket.io köprüsü ve port kilidi, kimlik doğrulama, REST API |
+| `server.js`, `lib/` | Express, Socket.io köprüsü ve port kilidi, kimlik doğrulama, REST API, güvenlik başlıkları |
 | `db.js` | SQLite şeması, sürüm geçişleri, sayfalı sorgular, akışlı dışa aktarma, yedek |
 | `examples/arduino/svb_fixture` | Protokolü uygulayan fikstür firmware'i |
 
@@ -209,7 +210,7 @@ Tüm uçlar oturum ister (`/health` hariç). Hatalar `{ errors: [...], code? }` 
 | POST | `/api/runs` (rezervasyon), `/api/runs/:runId/abandon` | operatör |
 | POST | `/api/tests` (`runId` ile idempotent; karar sunucuda hesaplanır) | operatör |
 | GET | `/api/tests?…&limit=&offset=` (özet + toplam), `/api/tests/:id` (detay), `/api/tests/export.csv` (akışlı) | operatör |
-| GET | `/api/reports`, `/api/reports/measurement?product=&key=` | operatör |
+| GET | `/api/reports?tz=`, `/api/reports/measurement?product=&key=` | operatör |
 | GET | `/api/audit` | mühendis |
 | GET | `/api/admin/backup`, `/api/users` … | yönetici |
 
@@ -224,9 +225,9 @@ npm run lint
 - **Ölçüm ve karar:** NaN / Infinity / taşma, eksik ve fazla örnek, değerlendirme modları, kayıt-reçete uyumu.
 - **Protokol ve kanal:** geç `@OK`, yinelenen cevap, kuyruk sırası, test kilidi, v1 koruma penceresi, heartbeat.
 - **Runner + simülatör:** her arıza türü, iptal, beklenmeyen hata, bağlantı kopması, yapışmış röle, watchdog.
-- **Sunucu (SerialPortMock ve gerçek Socket.io istemcileri):** port kilidi, başka sekmeden yazma/bağlantı kesme, hızlı yeniden bağlanma, kaybolan port, roller, rezervasyon yarışı, idempotent kayıt, CSV formül enjeksiyonu, 3000 satırlık akışlı dışa aktarma, şema taşıma, yedek ve geri yükleme.
-- **Tarayıcı deposu (fake-indexeddb):** sekmeler arası rezervasyon, gönderim kuyruğu, depolama hatası, eski veri aktarımı.
-- **Uçtan uca (Playwright):** simülatörle test, çift başlatma, güvenli olmayan kart, test sırasında gönderim kilidi, operatör sorusundan testi durdurma, sayfa kapanınca yarım kalan testin kurtarılması, taslak/yayın, FAIL sınırı ve yeniden açma, örnek veri, ilk ziyarette simülatör; sunucu modunda ilk kurulum, sahte seri porttan gerçek kart testi, tüm ekranların CSP altında hatasız çalışması, iki sekme, kaybolan kayıt cevabı + sayfa yenileme, kablo çıkarma, PASS sonrası gerekçe, yetkisiz değişiklik ve denetim kaydı.
+- **Sunucu (SerialPortMock ve gerçek Socket.io istemcileri):** port kilidi, başka sekmeden yazma/bağlantı kesme, hızlı yeniden bağlanma, kaybolan port, roller, rezervasyon yarışı, idempotent kayıt, yarım kalan testlerin serbest bırakılması, CSV formül enjeksiyonu, 3000 satırlık akışlı dışa aktarma, raporlarda ve CSV'de saat dilimi, şema taşıma, yedek ve geri yükleme, güvenlik başlıkları, düzgün kapanma.
+- **Tarayıcı deposu (fake-indexeddb):** sekmeler arası rezervasyon, gönderim kuyruğu, depolama hatası, eski veri aktarımı, örnek veri.
+- **Uçtan uca (Playwright):** simülatörle test, çift başlatma, güvenli olmayan kart, test sırasında gönderim kilidi, operatör sorusundan testi durdurma, sayfa kapanınca yarım kalan testin kurtarılması, taslak/yayın, FAIL sınırı ve yeniden açma, örnek veri, hızlı deneme düğmeleri, ilk ziyarette simülatör, telefon düzeni; sunucu modunda ilk kurulum, sahte seri porttan gerçek kart testi, tüm ekranların CSP altında hatasız çalışması, iki sekme, kaybolan kayıt cevabı + sayfa yenileme, kablo çıkarma, PASS sonrası gerekçe, yetkisiz değişiklik ve denetim kaydı.
 
 CI her push'ta birim testlerini Node 22 ve 24'te, uçtan uca testleri Chromium'da çalıştırır, fikstür firmware'ini derler ve ancak hepsi geçerse `main`'i GitHub Pages'e yayınlar.
 
