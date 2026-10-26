@@ -23,6 +23,7 @@ import {
   submissionDigestInput,
   yields,
   capability,
+  dayKey,
   SOURCE_FILTERS,
 } from './production.js';
 import { LocalDb, promisify } from './local-db.js';
@@ -43,6 +44,9 @@ function download(text, filename, type) {
   Object.assign(document.createElement('a'), { href: url, download: filename }).click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** The viewer's time zone: reports group days and exports print times in it. */
+const localTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
 function toQueryString(params) {
   const q = new URLSearchParams();
@@ -122,13 +126,13 @@ export class ServerStore {
   saveRun = (submission) => this.call('POST', 'api/tests', submission);
   query = (filters = {}, page = {}) => this.call('GET', `api/tests?${toQueryString({ ...filters, ...page })}`);
   getRun = (id) => this.call('GET', `api/tests/${id}`);
-  report = (filters = {}) => this.call('GET', `api/reports?${toQueryString(filters)}`);
+  report = (filters = {}) => this.call('GET', `api/reports?${toQueryString({ ...filters, tz: localTimeZone() })}`);
   measurementReport = (filters, product, key) => this.call('GET', `api/reports/measurement?${toQueryString({ ...filters, product, key })}`);
   audit = (params = {}) => this.call('GET', `api/audit?${toQueryString(params)}`);
 
   exportCsv(filters = {}) {
     // The server streams the file with Content-Disposition: attachment
-    Object.assign(document.createElement('a'), { href: `api/tests/export.csv?${toQueryString(filters)}` }).click();
+    Object.assign(document.createElement('a'), { href: `api/tests/export.csv?${toQueryString({ ...filters, tz: localTimeZone() })}` }).click();
   }
 
   backup() {
@@ -478,18 +482,19 @@ export class LocalStore {
 
   async exportCsv(filters = {}) {
     const matching = filterRecords(await this.allRuns(), { source: 'production', ...filters }).sort((a, b) => a.id - b.id);
-    download('﻿' + resultsToCsv(matching), `test-raporu-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
+    download('\uFEFF' + resultsToCsv(matching, { timeZone: localTimeZone() }), `test-raporu-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
   }
 
   /** Same shape as GET /api/reports. */
   async report(filters = {}) {
+    const timeZone = filters.tz ?? localTimeZone();
     const runs = filterRecords(await this.allRuns(), { source: 'production', ...filters });
     const dailyMap = new Map();
     const byProduct = new Map();
     const pareto = new Map();
     const keys = new Map();
     for (const r of runs) {
-      const day = r.finishedAt.slice(0, 10);
+      const day = dayKey(r.finishedAt, timeZone);
       const dk = `${day}|${r.productCode}|${r.result}`;
       dailyMap.set(dk, (dailyMap.get(dk) ?? 0) + 1);
       const p = byProduct.get(r.productCode) ?? { product: r.productCode, tests: 0, retests: 0, serials: new Set(), passed: new Set(), firstAttemptUnits: 0, firstPass: 0, counts: { PASS: 0, FAIL: 0, ERROR: 0 } };
@@ -529,6 +534,7 @@ export class LocalStore {
         return { result, cause: cause.join('|'), n };
       }).sort((a, b) => b.n - a.n).slice(0, 20),
       measurements: [...keys.values()],
+      timeZone,
     };
   }
 

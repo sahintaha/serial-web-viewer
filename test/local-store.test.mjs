@@ -223,7 +223,7 @@ test('local reports have the same shape as the server', async () => {
   await runOnce(store, 'SNS-000400');
   await runOnce(store, 'SNS-000401');
   const r = await store.report({ source: 'simulation' });
-  assert.deepEqual(Object.keys(r).sort(), ['daily', 'measurements', 'pareto', 'products']);
+  assert.deepEqual(Object.keys(r).sort(), ['daily', 'measurements', 'pareto', 'products', 'timeZone']);
   const p = r.products[0];
   assert.equal(p.tests, 3);
   assert.equal(p.fpy, 50);

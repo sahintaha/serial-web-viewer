@@ -1,7 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_PRODUCTS, validateProduct } from '../public/js/recipe.js';
-import { prepareTestRecord, resultsToCsv, summarize, filterRecords, unitStatus, cleanLog, checkRetestPolicy, canonicalJson, submissionDigestInput, capability } from '../public/js/production.js';
+import {
+  prepareTestRecord,
+  resultsToCsv,
+  summarize,
+  filterRecords,
+  unitStatus,
+  cleanLog,
+  checkRetestPolicy,
+  canonicalJson,
+  submissionDigestInput,
+  capability,
+  dayKey,
+  localTime,
+  validTimeZone,
+} from '../public/js/production.js';
 
 const SENSOR = { ...validateProduct(DEFAULT_PRODUCTS[0]).product, revision: 3 };
 
@@ -82,9 +96,35 @@ test('resultsToCsv: product, revision, failed step and one column pair per measu
   assert.equal(
     header,
     'id,serial,product,recipe_revision,attempt,result,failed_step,reason,operator,source,transport,safety,dut_firmware,' +
-      'retest_reason,station,started_at,finished_at,duration_s,Voltaj [V],Voltaj [V] status,Akım [mA],Akım [mA] status'
+      'retest_reason,station,started_at,finished_at,utc_offset,duration_s,Voltaj [V],Voltaj [V] status,Akım [mA],Akım [mA] status'
   );
   assert.match(row, /^7,SNS-000142,SVB-100,3,2,FAIL,5,Adım 5 \(Besleme ölçümü\): Akım limit dışı .*,Taha,hardware,webserial,SAFE,ID SVB-100 FW1\.4\.2,,,.*,4\.5,5,PASS,190,FAIL$/);
+});
+
+test('CSV times are local wall-clock times with their UTC offset', () => {
+  const { value } = prepareTestRecord(submission({ startedAt: '2026-10-25T22:59:58.000Z', finishedAt: '2026-10-25T23:00:03.000Z' }), SENSOR);
+  const record = { id: 1, attempt: 1, ...value };
+  const istanbul = resultsToCsv([record], { timeZone: 'Europe/Istanbul' }).split('\n')[1];
+  assert.match(istanbul, /,2026-10-26 01:59:58,2026-10-26 02:00:03,\+03:00,5\.0,/);
+  const utc = resultsToCsv([record]).split('\n')[1];
+  assert.match(utc, /,2026-10-25 22:59:58,2026-10-25 23:00:03,\+00:00,5\.0,/);
+});
+
+test('days follow the local calendar of a time zone, including DST and half-hour offsets', () => {
+  // 01:30 in Istanbul (UTC+3) is still the previous day in UTC
+  assert.equal(dayKey('2026-10-25T22:30:00.000Z', 'Europe/Istanbul'), '2026-10-26');
+  assert.equal(dayKey('2026-10-25T22:30:00.000Z', 'UTC'), '2026-10-25');
+  // Berlin switches to summer time on 2026-03-29; 00:30 local is 23:30 UTC the day before
+  assert.equal(dayKey('2026-03-28T23:30:00.000Z', 'Europe/Berlin'), '2026-03-29');
+  assert.equal(dayKey('2026-03-28T22:59:00.000Z', 'Europe/Berlin'), '2026-03-28');
+  // India is UTC+5:30
+  assert.equal(dayKey('2026-10-25T18:29:00.000Z', 'Asia/Kolkata'), '2026-10-25');
+  assert.equal(dayKey('2026-10-25T18:30:00.000Z', 'Asia/Kolkata'), '2026-10-26');
+  assert.deepEqual(localTime('2026-07-01T10:00:00.000Z', 'Europe/Berlin'), { text: '2026-07-01 12:00:00', offset: '+02:00' });
+  assert.deepEqual(localTime('bad', 'UTC'), { text: '', offset: '' });
+  assert.equal(validTimeZone('Europe/Istanbul'), 'Europe/Istanbul');
+  assert.equal(validTimeZone('Mars/Olympus'), null);
+  assert.equal(validTimeZone(''), null);
 });
 
 test('retest policy decisions', () => {

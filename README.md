@@ -91,6 +91,7 @@ Sunucusuz (tarayıcı) modda aynı kurallar uygulanır ama **yalnızca o tarayı
 - **FPY (ilk seferde geçme)** = 1. denemesi dönemde olan kartlardan 1. denemede PASS alanlar.
 - **Nihai verim** = dönemde PASS almış kart / test edilen kart.
 - FAIL, HATA ve tekrar testler ayrı sütunlardadır. Günlük sonuç grafiği ve hata sebebi Pareto grafiği vardır.
+- Günler, raporu açan kişinin saat diliminde sayılır (yaz saati ve yarım saatlik dilimler dahil); gece yarısından sonraki testler doğru güne yazılır. CSV'de başlangıç ve bitiş yerel saat olarak, `utc_offset` sütunuyla birlikte yazılır; Excel tarih olarak okur.
 - **Ölçüm dağılımı ve Cpk:** Cpk yalnızca en az 30 ölçüm, dönem içinde tek bir limit seti ve sıfırdan büyük bir dağılım varsa gösterilir; kararlı ve yaklaşık normal bir süreç varsayar. Koşullar sağlanmazsa neden gösterilmediği yazılır.
 - Tek bir kaydın yazdırılabilir raporu (kart başına test raporu) geçmiş ekranından alınır.
 - Simülasyon sonuçları raporlara varsayılan olarak girmez.

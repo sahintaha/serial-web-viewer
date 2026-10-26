@@ -398,6 +398,32 @@ describe('history, CSV and reports', () => {
     assert.match(lines[0], /^id,serial,product,recipe_revision,attempt,result,failed_step,reason,operator,source,transport,safety,dut_firmware/);
   });
 
+  test('reports count days and exports print times in the viewer\'s time zone', async () => {
+    const own = createServer({ dbPath: ':memory:', station: STATION, log: {} });
+    await new Promise((resolve) => own.server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${own.server.address().port}`;
+    const who = await loginAs(url, own, 'operator');
+    const production = await import('../public/js/production.js');
+    const recipe = await import('../public/js/recipe.js');
+    const product = { ...recipe.validateProduct(recipe.DEFAULT_PRODUCTS[0]).product, revision: 1 };
+    // 01:30 on 26 October in Istanbul is 22:30 on 25 October in UTC
+    const at = (finishedAt) => production.prepareTestRecord(submission(crypto.randomUUID(), 'SNS-000901', GOOD_STEPS, { startedAt: new Date(Date.parse(finishedAt) - 60000).toISOString(), finishedAt }), product).value;
+    own.db.insert(at('2026-10-25T22:30:00.000Z'), { source: 'hardware', runId: crypto.randomUUID() });
+    own.db.insert({ ...at('2026-10-25T20:00:00.000Z'), serial: 'SNS-000902' }, { source: 'hardware', runId: crypto.randomUUID() });
+
+    const days = async (tz) => (await request(url, 'GET', `/api/reports?tz=${tz}`, { cookie: who.cookie })).body;
+    const istanbul = await days('Europe/Istanbul');
+    assert.equal(istanbul.timeZone, 'Europe/Istanbul');
+    assert.deepEqual(istanbul.daily.map((d) => [d.day, d.n]), [['2026-10-25', 1], ['2026-10-26', 1]]);
+    assert.deepEqual((await days('UTC')).daily.map((d) => [d.day, d.n]), [['2026-10-25', 2]]);
+    assert.notEqual((await days('Not/AZone')).timeZone, 'Not/AZone', 'an unknown zone falls back to the server zone');
+
+    const csv = await (await fetch(`${url}/api/tests/export.csv?tz=Europe/Istanbul`, { headers: { cookie: who.cookie } })).text();
+    assert.match(csv, /2026-10-26 01:30:00,\+03:00,/);
+    own.server.closeAllConnections();
+    await new Promise((resolve) => own.server.close(resolve));
+  });
+
   test('CSV cells cannot become spreadsheet formulas, numbers stay numbers', async () => {
     const r = await runTest(op, 'SNS-000700', GOOD_STEPS.slice(0, 2), { error: '=HYPERLINK("http://evil","x")' });
     assert.equal(r.saved.status, 201);

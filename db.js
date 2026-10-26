@@ -662,8 +662,14 @@ function openResultsDb(file) {
     const { where, params } = buildWhere(filters);
     const and = where ? `${where} AND` : 'WHERE';
 
-    const daily = db
-      .prepare(`SELECT substr(finished_at, 1, 10) AS day, product_code AS product, result, COUNT(*) AS n FROM test_results ${where} GROUP BY day, product, result ORDER BY day`)
+    // Counts per 15 minutes (UTC). Every time zone offset is a multiple of 15 minutes, so the
+    // caller can map each bucket to the viewer's local day exactly, without loading every row.
+    const buckets = db
+      .prepare(
+        `SELECT substr(finished_at, 1, 14) || printf('%02d', (CAST(substr(finished_at, 15, 2) AS INTEGER) / 15) * 15) AS bucket,
+                product_code AS product, result, COUNT(*) AS n
+         FROM test_results ${where} GROUP BY bucket, product, result ORDER BY bucket`
+      )
       .all(...params)
       .map((r) => ({ ...r }));
 
@@ -701,7 +707,7 @@ function openResultsDb(file) {
       .all(...params)
       .map((r) => ({ ...r }));
 
-    return { daily, units, pareto, measurementKeys };
+    return { buckets, units, pareto, measurementKeys };
   }
 
   /** Values of one measurement (per-test evaluated value) and the current limits, for distribution / Cpk. */

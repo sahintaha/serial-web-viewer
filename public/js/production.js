@@ -141,17 +141,74 @@ export function csvColumns(definitions) {
   return columns;
 }
 
+// ---------- time zones: days and times are shown in the viewer's local calendar ----------
+
+const formatters = new Map();
+
+function formatter(timeZone, options) {
+  const key = `${timeZone}|${Object.keys(options).join()}`;
+  let f = formatters.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-CA', { timeZone, ...options });
+    formatters.set(key, f);
+  }
+  return f;
+}
+
+/** The name if it is a time zone this runtime knows (e.g. "Europe/Istanbul"), otherwise null. */
+export function validTimeZone(timeZone) {
+  if (typeof timeZone !== 'string' || !timeZone || timeZone.length > 64) return null;
+  try {
+    formatter(timeZone, { year: 'numeric' });
+    return timeZone;
+  } catch {
+    return null;
+  }
+}
+
+const part = (parts, type) => parts.find((p) => p.type === type)?.value ?? '';
+
+/** Calendar day "YYYY-MM-DD" of an instant in a time zone (DST aware). */
+export function dayKey(iso, timeZone = 'UTC') {
+  const parts = formatter(timeZone, { year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(iso));
+  return `${part(parts, 'year')}-${part(parts, 'month')}-${part(parts, 'day')}`;
+}
+
+/** Wall-clock time "YYYY-MM-DD HH:MM:SS" (spreadsheets read it as a date) and the UTC offset "+03:00". */
+export function localTime(iso, timeZone = 'UTC') {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return { text: '', offset: '' };
+  const parts = formatter(timeZone, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+    timeZoneName: 'longOffset',
+  }).formatToParts(date);
+  const zone = part(parts, 'timeZoneName'); // "GMT+03:00", or "GMT" for UTC
+  return {
+    text: `${part(parts, 'year')}-${part(parts, 'month')}-${part(parts, 'day')} ${part(parts, 'hour')}:${part(parts, 'minute')}:${part(parts, 'second')}`,
+    offset: zone === 'GMT' ? '+00:00' : zone.replace('GMT', ''),
+  };
+}
+
+// started_at / finished_at are local wall-clock times; utc_offset makes them unambiguous
 const CSV_FIXED = [
   'id', 'serial', 'product', 'recipe_revision', 'attempt', 'result', 'failed_step', 'reason', 'operator',
-  'source', 'transport', 'safety', 'dut_firmware', 'retest_reason', 'station', 'started_at', 'finished_at', 'duration_s',
+  'source', 'transport', 'safety', 'dut_firmware', 'retest_reason', 'station', 'started_at', 'finished_at', 'utc_offset', 'duration_s',
 ];
 
 export function csvHeader(columns) {
   return [...CSV_FIXED, ...columns.flatMap((c) => [c.title, `${c.title} status`])].map(csvText).join(',');
 }
 
-export function csvRow(r, columns) {
+export function csvRow(r, columns, { timeZone = 'UTC' } = {}) {
   const byKey = new Map(r.measurements.map((m) => [`${m.step ?? ''}:${m.key}`, m]));
+  const started = localTime(r.startedAt, timeZone);
+  const finished = localTime(r.finishedAt, timeZone);
   const duration = (Date.parse(r.finishedAt) - Date.parse(r.startedAt)) / 1000;
   const numeric = [r.id, r.recipeRevision ?? '', r.attempt, r.failedStep === null || r.failedStep === undefined ? '' : r.failedStep + 1];
   return [
@@ -170,8 +227,9 @@ export function csvRow(r, columns) {
     csvText(r.captures?.firmware ?? ''),
     csvText(r.retestReason ?? ''),
     csvText(r.station?.id ?? ''),
-    csvCell(r.startedAt),
-    csvCell(r.finishedAt),
+    csvCell(started.text),
+    csvCell(finished.text),
+    csvCell(finished.offset),
     csvCell(Number.isFinite(duration) ? duration.toFixed(1) : ''),
     ...columns.flatMap((c) => {
       const m = byKey.get(c.id);
@@ -181,9 +239,9 @@ export function csvRow(r, columns) {
 }
 
 /** Builds the CSV test report in memory (browser-only store); the server streams the same rows. */
-export function resultsToCsv(records) {
+export function resultsToCsv(records, options = {}) {
   const columns = csvColumns(records.flatMap((r) => r.measurements));
-  return [csvHeader(columns), ...records.map((r) => csvRow(r, columns))].join('\n');
+  return [csvHeader(columns), ...records.map((r) => csvRow(r, columns, options))].join('\n');
 }
 
 /**

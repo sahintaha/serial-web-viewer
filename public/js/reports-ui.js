@@ -72,6 +72,7 @@ export function initReports({ store, app }) {
   }
 
   function renderDaily() {
+    $('rp-daily-zone').textContent = report.timeZone ? `Günler yerel saate göre (${report.timeZone})` : '';
     const days = [...new Set(report.daily.map((d) => d.day))].sort();
     const sum = (day, result) => report.daily.filter((d) => d.day === day && d.result === result).reduce((a, d) => a + d.n, 0);
     const dataset = (result, label, color) => ({ label, data: days.map((d) => sum(d, result)), backgroundColor: color, stack: 'r' });

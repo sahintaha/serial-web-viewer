@@ -626,7 +626,7 @@ export function initMonitor(app) {
           break;
         case 'export-csv':
           if (!state.history.length) app.showToast('Dışa aktarılacak veri yok');
-          else download('﻿' + rowsToCsv(state.history.filter((r) => !r.reply)), `serial-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`, 'text/csv;charset=utf-8');
+          else download('\uFEFF' + rowsToCsv(state.history.filter((r) => !r.reply)), `serial-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`, 'text/csv;charset=utf-8');
           break;
       }
     });
