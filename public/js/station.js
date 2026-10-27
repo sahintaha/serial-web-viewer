@@ -363,7 +363,7 @@ export function initStation(ctx) {
       if (token !== unitLookup) return; // a newer lookup (the operator kept typing) wins
       $('pt-unit').className = `pt-unit${unit.blocked ? ' text-fail' : ''}`;
       $('pt-unit').textContent = unit.attempts
-        ? `${unit.attempts} deneme · son: ${RESULT_TEXT[unit.lastResult]} · FAIL ${unit.failures}/${product.maxAttempts}${unit.errors ? ` · HATA ${unit.errors}/${product.maxErrors}` : ''}${unit.blocked ? ' · onarıma gönderin' : ''}${unit.openReservations ? ' · şu an başka istasyonda' : ''}`
+        ? `${unit.attempts} deneme · son: ${RESULT_TEXT[unit.lastResult]} · FAIL ${unit.failures}/${product.maxAttempts}${unit.errors ? ` · HATA ${unit.errors}/${product.maxErrors}` : ''}${unit.blocked ? ' · kalite durdurmasında, onarıma gönderin' : ''}${unit.openReservations ? ' · şu an başka istasyonda' : ''}`
         : 'Yeni kart';
     } catch {
       if (token === unitLookup) $('pt-unit').textContent = '';

@@ -228,6 +228,7 @@ test('local reports have the same shape as the server', async () => {
   assert.equal(p.tests, 3);
   assert.equal(p.fpy, 50);
   assert.equal(p.finalYield, 100);
+  assert.equal(p.dppm, 500_000, 'one of the two boards failed its first test');
   assert.equal(p.retests, 1);
   const m = await store.measurementReport({ source: 'simulation' }, 'SVB-100', 'I');
   assert.equal(m.n, 3);

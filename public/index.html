@@ -395,7 +395,7 @@
             </form>
             <div class="table-wrap mt-md">
               <table class="table">
-                <thead><tr><th>Ürün</th><th class="num">Test</th><th class="num">PASS</th><th class="num">FAIL</th><th class="num">HATA</th><th class="num">Tekrar test</th><th class="num">Kart</th><th class="num" title="PASS test / tüm testler">Deneme verimi</th><th class="num" title="1. denemede PASS olan kart / 1. denemesi bu dönemde olan kart">FPY</th><th class="num" title="Dönemde PASS almış kart / test edilen kart">Nihai verim</th></tr></thead>
+                <thead><tr><th>Ürün</th><th class="num">Test</th><th class="num">PASS</th><th class="num">FAIL</th><th class="num">HATA</th><th class="num">Tekrar test</th><th class="num">Kart</th><th class="num" title="PASS test / tüm testler">Deneme verimi</th><th class="num" title="1. denemede PASS olan kart / 1. denemesi bu dönemde olan kart">FPY</th><th class="num" title="Dönemde PASS almış kart / test edilen kart">Nihai verim</th><th class="num" title="İlk testte FAIL alan kart / ilk testi bu dönemde olan kart × 1.000.000 (defective parts per million). HATA, istasyon sorunu olduğu için sayılmaz.">DPPM</th></tr></thead>
                 <tbody id="rp-products"></tbody>
               </table>
             </div>
@@ -407,7 +407,7 @@
         </div>
         <section class="panel" aria-labelledby="dist-title">
           <div class="panel-head">
-            <div class="panel-title"><h2 id="dist-title">Ölçüm dağılımı ve süreç yeterliliği</h2></div>
+            <div class="panel-title"><h2 id="dist-title">CTQ ölçümleri: dağılım ve süreç yeterliliği</h2></div>
             <div class="panel-actions"><select id="rp-measure" class="select" aria-label="Ölçüm"></select></div>
           </div>
           <div class="panel-body dist-grid">
@@ -415,7 +415,7 @@
             <div>
               <dl class="kv" id="rp-stats"></dl>
               <ul class="notes" id="rp-notes"></ul>
-              <p class="hint">Cpk = min(USL − μ, μ − LSL) / 3σ. Kararlı ve yaklaşık normal dağılan bir süreç varsayar; en az 30 ölçüm ve tek bir limit seti gerekir. Bu koşullar sağlanmazsa değer gösterilmez.</p>
+              <p class="hint">Reçetede limiti tanımlı her ölçüm bir CTQ (critical to quality, kaliteye kritik) karakteristiğidir. Cpk = min(USL − μ, μ − LSL) / 3σ. Kararlı ve yaklaşık normal dağılan bir süreç varsayar; en az 30 ölçüm ve tek bir limit seti gerekir. Bu koşullar sağlanmazsa değer gösterilmez.</p>
             </div>
           </div>
         </section>

@@ -67,10 +67,11 @@ export function initReports({ store, app }) {
               {},
               el('td', { className: 'mono', textContent: p.product ?? '—' }),
               ...[p.tests, p.PASS, p.FAIL, p.ERROR, p.retests, p.units].map((n) => el('td', { className: 'num', textContent: n })),
-              ...[p.attemptYield, p.fpy, p.finalYield].map((v) => el('td', { className: 'num', textContent: pct(v) }))
+              ...[p.attemptYield, p.fpy, p.finalYield].map((v) => el('td', { className: 'num', textContent: pct(v) })),
+              el('td', { className: 'num', textContent: p.dppm === null || p.dppm === undefined ? '—' : p.dppm.toLocaleString('tr-TR') })
             )
           )
-        : [el('tr', { className: 'table-empty' }, el('td', { colSpan: 10 }, emptyText(), store.kind === 'local' ? sampleButton() : null))])
+        : [el('tr', { className: 'table-empty' }, el('td', { colSpan: 11 }, emptyText(), store.kind === 'local' ? sampleButton() : null))])
     );
   }
 

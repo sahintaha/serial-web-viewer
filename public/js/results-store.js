@@ -497,7 +497,7 @@ export class LocalStore {
       const day = dayKey(r.finishedAt, timeZone);
       const dk = `${day}|${r.productCode}|${r.result}`;
       dailyMap.set(dk, (dailyMap.get(dk) ?? 0) + 1);
-      const p = byProduct.get(r.productCode) ?? { product: r.productCode, tests: 0, retests: 0, serials: new Set(), passed: new Set(), firstAttemptUnits: 0, firstPass: 0, counts: { PASS: 0, FAIL: 0, ERROR: 0 } };
+      const p = byProduct.get(r.productCode) ?? { product: r.productCode, tests: 0, retests: 0, serials: new Set(), passed: new Set(), firstAttemptUnits: 0, firstPass: 0, firstFail: 0, counts: { PASS: 0, FAIL: 0, ERROR: 0 } };
       p.tests += 1;
       if (r.attempt > 1) p.retests += 1;
       p.serials.add(r.serial);
@@ -505,6 +505,7 @@ export class LocalStore {
       if (r.attempt === 1) {
         p.firstAttemptUnits += 1;
         if (r.result === 'PASS') p.firstPass += 1;
+        if (r.result === 'FAIL') p.firstFail += 1;
       }
       p.counts[r.result] += 1;
       byProduct.set(r.productCode, p);
@@ -524,7 +525,7 @@ export class LocalStore {
     return {
       products: [...byProduct.values()]
         .sort((a, b) => String(a.product).localeCompare(String(b.product)))
-        .map((p) => yields({ product: p.product, tests: p.tests, retests: p.retests, units: p.serials.size, unitsPassed: p.passed.size, firstAttemptUnits: p.firstAttemptUnits, firstPass: p.firstPass }, p.counts)),
+        .map((p) => yields({ product: p.product, tests: p.tests, retests: p.retests, units: p.serials.size, unitsPassed: p.passed.size, firstAttemptUnits: p.firstAttemptUnits, firstPass: p.firstPass, firstFail: p.firstFail }, p.counts)),
       daily: [...dailyMap.entries()].map(([k, n]) => {
         const [day, product, result] = k.split('|');
         return { day, product, result, n };

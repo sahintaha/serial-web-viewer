@@ -452,6 +452,7 @@ describe('history, CSV and reports', () => {
     assert.equal(p.product, 'SVB-100');
     assert.ok(p.retests > 0);
     assert.ok(p.fpy < p.finalYield, 'retests that pass raise the final yield above FPY');
+    assert.ok(p.dppm > 0 && p.dppm <= 1_000_000, `DPPM ${p.dppm}`);
     assert.ok(body.pareto.length > 0);
     assert.ok(body.pareto[0].cause.startsWith('Adım'));
     const m = (await api(op, 'GET', '/api/reports/measurement?source=simulation&product=SVB-100&key=I')).body;

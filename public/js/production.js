@@ -293,6 +293,8 @@ function sampleStatsLocal(values) {
  * Per-product yields from the aggregated rows of the report query.
  *   attempt yield = PASS tests / all tests
  *   first-pass yield (FPY) = units passing on attempt 1 / units whose attempt 1 is in the period
+ *   DPPM = units failing on attempt 1 / units whose attempt 1 is in the period × 1,000,000
+ *          (defective parts per million; ERROR is a station problem and is not counted)
  *   final yield = units with a PASS in the period / units tested in the period
  */
 export function yields(row, counts) {
@@ -307,6 +309,7 @@ export function yields(row, counts) {
     units: row.units,
     attemptYield: pct(counts.PASS ?? 0, row.tests),
     fpy: pct(row.firstPass, row.firstAttemptUnits),
+    dppm: row.firstAttemptUnits ? Math.round(((row.firstFail ?? 0) / row.firstAttemptUnits) * 1_000_000) : null,
     finalYield: pct(row.unitsPassed, row.units),
   };
 }
@@ -415,13 +418,13 @@ export function checkRetestPolicy({ history, product, openReservations = [], ret
   if (status.blockedBy === 'ERROR') {
     return deny(
       'BLOCKED',
-      `Bu kart ${status.errors} kez HATA verdi, test bir kez bile tamamlanamadı (sınır ${product.maxErrors}). Kartı ve fikstürü kontrol edin; bir mühendis yeniden açmalı.`
+      `Kalite durdurması (quality hold): bu kart ${status.errors} kez HATA verdi, test bir kez bile tamamlanamadı (sınır ${product.maxErrors}). Kartı ve fikstürü kontrol edin; bir mühendis yeniden açmalı.`
     );
   }
   if (status.blocked) {
     return deny(
       'BLOCKED',
-      `Bu kart ${status.failures} kez FAIL aldı (sınır ${product.maxAttempts}). Onarımdan sonra bir mühendis kartı yeniden açmalı.`
+      `Kalite durdurması (quality hold): bu kart ${status.failures} kez FAIL aldı (sınır ${product.maxAttempts}). Onarımdan sonra bir mühendis kartı yeniden açmalı.`
     );
   }
   if (status.passed && !String(retestReason ?? '').trim()) {

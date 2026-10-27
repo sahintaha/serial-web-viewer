@@ -135,6 +135,7 @@ test('retest policy decisions', () => {
 
   assert.equal(decide([]).allowed, true);
   assert.equal(decide([{ result: 'FAIL', finishedAt: at(0) }, { result: 'FAIL', finishedAt: at(1) }]).code, 'BLOCKED');
+  assert.match(decide([{ result: 'FAIL', finishedAt: at(0) }, { result: 'FAIL', finishedAt: at(1) }]).reason, /^Kalite durdurması \(quality hold\)/);
   // A reopen after the failures restarts the count
   assert.equal(decide([{ result: 'FAIL', finishedAt: at(0) }, { result: 'FAIL', finishedAt: at(1) }], { history: { reopenedAt: at(2) } }).allowed, true);
   assert.equal(decide([{ result: 'PASS', finishedAt: at(0) }]).code, 'PASSED_NEEDS_REASON');

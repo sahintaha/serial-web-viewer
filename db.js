@@ -676,6 +676,7 @@ function openResultsDb(file) {
 
     // Per product, aggregated in SQL so the report does not load every row:
     //   firstAttemptUnits / firstPass → first-pass yield (units whose attempt 1 is in the period)
+    //   firstAttemptUnits / firstFail → DPPM (defective boards at first test, per million)
     //   units / unitsPassed           → final yield (units with any PASS in the period)
     const units = db
       .prepare(
@@ -685,7 +686,8 @@ function openResultsDb(file) {
                 COUNT(DISTINCT serial) AS units,
                 COUNT(DISTINCT CASE WHEN result = 'PASS' THEN serial END) AS unitsPassed,
                 SUM(CASE WHEN attempt = 1 THEN 1 ELSE 0 END) AS firstAttemptUnits,
-                SUM(CASE WHEN attempt = 1 AND result = 'PASS' THEN 1 ELSE 0 END) AS firstPass
+                SUM(CASE WHEN attempt = 1 AND result = 'PASS' THEN 1 ELSE 0 END) AS firstPass,
+                SUM(CASE WHEN attempt = 1 AND result = 'FAIL' THEN 1 ELSE 0 END) AS firstFail
          FROM test_results ${where} GROUP BY product_code ORDER BY product_code`
       )
       .all(...params)
