@@ -47,6 +47,7 @@ Protocol, safe shutdown and recipe format: [docs/protocol.md](docs/protocol.md).
 
 ### Measurement accuracy
 
+- Every measurement with limits is a CTQ (critical-to-quality) characteristic: it decides PASS / FAIL, is stored with its limits and evaluation mode, and feeds the Cpk report.
 - Values that are not numbers or overflow to infinity (`NaN`, `Infinity`, `1e999`, text) count as **invalid**; the step becomes ERROR, never PASS.
 - Fewer measurements than the recipe's sample count are "missing", extra replies are "extra samples"; both give ERROR.
 - The evaluation mode (`mean`, `min`, `max`, `all`) is part of the recipe revision and stored with every result.
@@ -73,8 +74,8 @@ Protocol, safe shutdown and recipe format: [docs/protocol.md](docs/protocol.md).
 |---|---|
 | The board was never tested | It is tested. |
 | The board already **PASSED** | A retest needs a reason, which is stored with the record and in the audit log. |
-| The board has **FAILED** as many times as the product's "max FAIL" since its last reopen | It is not tested and is sent to repair. When an engineer reopens it with a repair reason, the count starts again; old records stay. |
-| **ERROR** results | Do not count as FAIL (the problem is usually the station), but have their own limit: a board that cannot complete a test "max ERROR" times (default 3) also goes to repair. A dead board that never answers cannot be retested forever. |
+| The board has **FAILED** as many times as the product's "max FAIL" since its last reopen | It is not tested: the board goes on **quality hold** and is sent to repair. When an engineer reopens it with a repair reason, the count starts again; old records stay. |
+| **ERROR** results | Do not count as FAIL (the problem is usually the station), but have their own limit: a board that cannot complete a test "max ERROR" times (default 3) also goes on quality hold. A dead board that never answers cannot be retested forever. |
 | The board is being tested at another station | Refused; the message says who, at which station and since when. Unfinished reservations older than 30 minutes count as abandoned. |
 | A test was interrupted (tab closed, browser crashed) | When the station opens again it releases the interrupted run's reservation itself, treats the result as not stored and does not allow a new test until the operator confirms the board was checked. For a run interrupted elsewhere, its owner or an engineer can choose "release the interrupted test"; this is audited. |
 | The serial number belongs to another product | Refused (a serial number belongs to one product). |
@@ -89,9 +90,10 @@ In browser-only (serverless) mode the same rules apply, but **only within that b
 - **Attempt yield** = PASS tests / all tests.
 - **FPY (first-pass yield)** = boards whose first attempt is in the period and passed on it.
 - **Final yield** = boards with a PASS in the period / boards tested in the period.
+- **DPPM** (defective parts per million) = boards that failed their first test / boards whose first test is in the period × 1,000,000. ERROR does not count; it is a station problem.
 - FAIL, ERROR and retests have their own columns. There is a daily results chart and a Pareto chart of failure causes.
 - Days are counted in the time zone of the person viewing the report (daylight saving time and half-hour zones included), so tests after midnight land on the right day. The CSV writes start and finish as local times with a `utc_offset` column; Excel reads them as dates.
-- **Measurement distribution and Cpk:** Cpk is shown only with at least 30 measurements, one set of limits in the period and a spread greater than zero; it assumes a stable, roughly normal process. If the conditions are not met, the report says why.
+- **CTQ measurement distribution and Cpk:** every measurement with limits in a recipe is a CTQ (critical-to-quality) characteristic. Cpk is shown only with at least 30 measurements, one set of limits in the period and a spread greater than zero; it assumes a stable, roughly normal process. If the conditions are not met, the report says why.
 - A printable report of a single record (a per-board test report) comes from the history screen.
 - Simulation results never mix into production reports; while connected to the simulator, reports and history show the simulation source.
 
@@ -166,15 +168,41 @@ node scripts/db.js restore backup-2026-10-26.db   # with the server stopped
 
 ## Architecture
 
-```
-                       ┌──────────────────────────── public/js ─────────────────────────────┐
- USB ─ Web Serial ────▶│ WebSerialTransport ┐                                               │
- USB ─ server.js ─────▶│ ServerTransport ───┼─▶ CommandChannel ─▶ monitor.js                 │
-       (Socket.io,     │ DemoTransport ─────┘   (ids, queue,       station.js ─▶ runner.js    │
-        port lock)     │   └ simulator.js        lock, heartbeat)          recipe.js           │
-                       │                                                                     │
-                       │ outbox.js ─▶ results-store.js ──▶ /api (SQLite)  or  IndexedDB       │
-                       └─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph FIX["Test fixture"]
+        DUT["Board under test<br/>(PCBA)"]
+        FW["Fixture firmware<br/>protocol v2 · watchdog"]
+        DUT --- FW
+    end
+
+    subgraph BROWSER["Browser · station UI"]
+        WS["Web Serial"]
+        SIM["Simulator<br/>(demo, no hardware)"]
+        CH["Command channel<br/>request ids · queue · lock · heartbeat"]
+        ST["Station<br/>state machine"]
+        RUN["Runner<br/>recipe steps + teardown"]
+        OB["Outbox<br/>persistent send queue"]
+        IDB[("IndexedDB<br/>browser-only mode")]
+        ST --> RUN --> CH
+        WS --> CH
+        SIM --> CH
+        ST --> OB
+        OB --> IDB
+    end
+
+    subgraph SERVER["Node.js server"]
+        BR["Serial bridge<br/>Socket.io · port lock"]
+        API["REST API<br/>users · roles · retest rules"]
+        DB[("SQLite<br/>results · recipes · audit log")]
+        REP["Reports<br/>yield · FPY · DPPM · Pareto · Cpk"]
+        API --> DB --> REP
+    end
+
+    FW <-->|USB serial| WS
+    FW <-->|USB serial| BR
+    BR <-->|Socket.io| CH
+    OB -->|"POST /api/tests (idempotent)"| API
 ```
 
 | File | Role |

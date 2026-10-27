@@ -47,6 +47,7 @@ Protokol, güvenli kapanma ve reçete biçimi: [docs/protocol.md](docs/protocol.
 
 ### Ölçüm doğruluğu
 
+- Limiti tanımlı her ölçüm bir CTQ (kaliteye kritik) karakteristiğidir: PASS / FAIL'i belirler, limitleri ve değerlendirme moduyla saklanır, Cpk raporunu besler.
 - Sayıya çevrilemeyen veya sonsuza taşan değerler (`NaN`, `Infinity`, `1e999`, metin) **geçersiz** sayılır; adım HATA olur, asla PASS olmaz.
 - Reçetedeki örnek sayısından az ölçüm "eksik", fazla cevap "fazla örnek" olarak HATA verir.
 - Değerlendirme modu (`mean`, `min`, `max`, `all`) reçete revizyonunun parçasıdır ve her sonuçla birlikte saklanır.
@@ -73,8 +74,8 @@ Protokol, güvenli kapanma ve reçete biçimi: [docs/protocol.md](docs/protocol.
 |---|---|
 | Kart hiç test edilmemiş | Test edilir. |
 | Kart daha önce **PASS** aldı | Tekrar test için gerekçe istenir; gerekçe kayda ve denetim kaydına yazılır. |
-| Kart son yeniden açılıştan beri ürünün "En fazla FAIL" sayısı kadar **FAIL** aldı | Test edilmez, onarıma yönlendirilir. Mühendis onarım gerekçesiyle yeniden açınca sayaç sıfırlanır; eski kayıtlar silinmez. |
-| **HATA** sonuçları | FAIL sınırına sayılmaz (sorun genellikle istasyondadır), ama kendi sınırı vardır: "En fazla HATA" (varsayılan 3) kez tamamlanamayan kart da onarıma yönlendirilir. Hiç cevap vermeyen ölü bir kart böylece sonsuza kadar tekrar test edilemez. |
+| Kart son yeniden açılıştan beri ürünün "En fazla FAIL" sayısı kadar **FAIL** aldı | Test edilmez: kart **kalite durdurmasına** (quality hold) alınır ve onarıma yönlendirilir. Mühendis onarım gerekçesiyle yeniden açınca sayaç sıfırlanır; eski kayıtlar silinmez. |
+| **HATA** sonuçları | FAIL sınırına sayılmaz (sorun genellikle istasyondadır), ama kendi sınırı vardır: "En fazla HATA" (varsayılan 3) kez tamamlanamayan kart da kalite durdurmasına alınır. Hiç cevap vermeyen ölü bir kart böylece sonsuza kadar tekrar test edilemez. |
 | Kart şu anda başka bir istasyonda testte | Reddedilir; mesaj kimin, hangi istasyonda, ne zamandan beri test ettiğini söyler. 30 dakikadan eski, bitmemiş rezervasyonlar terk edilmiş sayılır. |
 | Test yarıda kaldı (sekme kapandı, tarayıcı çöktü) | İstasyon tekrar açılınca yarım kalan testin rezervasyonunu kendisi kapatır, sonucu kaydedilmemiş sayar ve operatör kartı kontrol ettiğini onaylamadan yeni teste izin vermez. Başka bir yerde yarım kalan test için sahibi veya bir mühendis "Yarım kalan testi kapat" diyebilir; denetim kaydına yazılır. |
 | Seri numarası başka bir ürüne ait | Reddedilir (bir seri numarası tek ürüne aittir). |
@@ -89,9 +90,10 @@ Sunucusuz (tarayıcı) modda aynı kurallar uygulanır ama **yalnızca o tarayı
 - **Deneme verimi** = PASS test / tüm testler.
 - **FPY (ilk seferde geçme)** = 1. denemesi dönemde olan kartlardan 1. denemede PASS alanlar.
 - **Nihai verim** = dönemde PASS almış kart / test edilen kart.
+- **DPPM** (defective parts per million, milyonda hatalı kart) = ilk testte FAIL alan kart / ilk testi bu dönemde olan kart × 1.000.000. HATA sayılmaz; istasyon sorunudur.
 - FAIL, HATA ve tekrar testler ayrı sütunlardadır. Günlük sonuç grafiği ve hata sebebi Pareto grafiği vardır.
 - Günler, raporu açan kişinin saat diliminde sayılır (yaz saati ve yarım saatlik dilimler dahil); gece yarısından sonraki testler doğru güne yazılır. CSV'de başlangıç ve bitiş yerel saat olarak, `utc_offset` sütunuyla birlikte yazılır; Excel tarih olarak okur.
-- **Ölçüm dağılımı ve Cpk:** Cpk yalnızca en az 30 ölçüm, dönem içinde tek bir limit seti ve sıfırdan büyük bir dağılım varsa gösterilir; kararlı ve yaklaşık normal bir süreç varsayar. Koşullar sağlanmazsa neden gösterilmediği yazılır.
+- **CTQ ölçüm dağılımı ve Cpk:** reçetede limiti tanımlı her ölçüm bir CTQ (critical to quality, kaliteye kritik) karakteristiğidir. Cpk yalnızca en az 30 ölçüm, dönem içinde tek bir limit seti ve sıfırdan büyük bir dağılım varsa gösterilir; kararlı ve yaklaşık normal bir süreç varsayar. Koşullar sağlanmazsa neden gösterilmediği yazılır.
 - Tek bir kaydın yazdırılabilir raporu (kart başına test raporu) geçmiş ekranından alınır.
 - Simülasyon sonuçları üretim raporlarına hiçbir zaman karışmaz; simülatöre bağlıyken raporlar ve geçmiş, kaynak olarak simülasyonu gösterir.
 
@@ -166,15 +168,41 @@ node scripts/db.js restore yedek-2026-10-26.db   # sunucu kapalıyken
 
 ## Mimari
 
-```
-                       ┌──────────────────────────── public/js ─────────────────────────────┐
- USB ─ Web Serial ────▶│ WebSerialTransport ┐                                               │
- USB ─ server.js ─────▶│ ServerTransport ───┼─▶ CommandChannel ─▶ monitor.js                 │
-       (Socket.io,     │ DemoTransport ─────┘   (kimlik, kuyruk,   station.js ─▶ runner.js    │
-        port kilidi)   │   └ simulator.js        kilit, heartbeat)        recipe.js           │
-                       │                                                                     │
-                       │ outbox.js ─▶ results-store.js ──▶ /api (SQLite)  veya  IndexedDB     │
-                       └─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph FIX["Test fikstürü"]
+        DUT["Test edilen kart<br/>(PCBA)"]
+        FW["Fikstür firmware'i<br/>protokol v2 · watchdog"]
+        DUT --- FW
+    end
+
+    subgraph BROWSER["Tarayıcı · istasyon arayüzü"]
+        WS["Web Serial"]
+        SIM["Simülatör<br/>(demo, donanımsız)"]
+        CH["Komut kanalı<br/>istek kimliği · kuyruk · kilit · heartbeat"]
+        ST["İstasyon<br/>durum makinesi"]
+        RUN["Runner<br/>reçete adımları + teardown"]
+        OB["Outbox<br/>kalıcı gönderim kuyruğu"]
+        IDB[("IndexedDB<br/>sunucusuz mod")]
+        ST --> RUN --> CH
+        WS --> CH
+        SIM --> CH
+        ST --> OB
+        OB --> IDB
+    end
+
+    subgraph SERVER["Node.js sunucusu"]
+        BR["Seri köprü<br/>Socket.io · port kilidi"]
+        API["REST API<br/>kullanıcılar · roller · tekrar test kuralları"]
+        DB[("SQLite<br/>sonuçlar · reçeteler · denetim kaydı")]
+        REP["Raporlar<br/>verim · FPY · DPPM · Pareto · Cpk"]
+        API --> DB --> REP
+    end
+
+    FW <-->|USB seri| WS
+    FW <-->|USB seri| BR
+    BR <-->|Socket.io| CH
+    OB -->|"POST /api/tests (idempotent)"| API
 ```
 
 | Dosya | Görev |
